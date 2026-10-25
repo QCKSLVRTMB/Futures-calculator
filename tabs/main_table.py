@@ -1,14 +1,11 @@
 import streamlit as st
 import pandas as pd
-from data import fetch_moex_forts, vlookup, to_float, MARGIN_COL_MAP
+from data import vlookup, to_float, MARGIN_COL_MAP
 from rules import TREND_VALUES
 
-def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
+def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
     st.subheader("📊 Данные с биржи")
 
-    iss_df = fetch_moex_forts()
-    
-    # Формируем список доступных тикеров для выпадающего списка
     if not iss_df.empty:
         active_iss = iss_df[iss_df["VALTODAY"].fillna(0) > 0]
         available_tickers = sorted(active_iss["SECID"].dropna().unique().tolist())
@@ -51,23 +48,21 @@ def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
         st.info("👆 Выберите хотя бы один тикер для отображения данных.")
         return
 
-    # ---------- Формирование таблицы из ISS + Google Sheets ----------
+    # ---------- Формирование таблицы ----------
     col_go, _ = MARGIN_COL_MAP[margin_type]
     rows = []
     
     for t in picked:
         iss_row = iss_df[iss_df["SECID"] == t] if not iss_df.empty else pd.DataFrame()
         
-        # 1. Цена (если LAST=0, берем PREVSETTLEPRICE)
         price = 0.0
         if not iss_row.empty:
             price = to_float(iss_row.iloc[0]["LAST"])
             if price == 0:
                 price = to_float(iss_row.iloc[0]["PREVSETTLEPRICE"])
         if price == 0:
-            price = to_float(vlookup(md_df, t, 9)) # Фоллбэк в Google Sheets
+            price = to_float(vlookup(md_df, t, 9))
             
-        # 2. Шаг и Стоимость шага
         step_price, step_cost = 0.0, 0.0
         if not iss_row.empty:
             step_price = to_float(iss_row.iloc[0]["MINSTEP"])
@@ -76,14 +71,12 @@ def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
             step_price = to_float(vlookup(api_df, t, 6))
             step_cost = to_float(vlookup(api_df, t, 17))
 
-        # 3. Гарантийное обеспечение (из ISS или Google)
         margin = 0.0
         if not iss_row.empty:
             margin = to_float(iss_row.iloc[0]["INITIALMARGIN"])
         if margin == 0:
             margin = to_float(vlookup(go_df, t, col_go))
 
-        # 4. Прочие данные
         code_gs = vlookup(api_df, t, 9)
         name_gs = vlookup(api_df, t, 3)
         expiry_gs = vlookup(api_df, t, 7)
@@ -115,7 +108,6 @@ def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
         
     df = pd.DataFrame(rows)
 
-    # ---------- Редактор таблицы ----------
     st.markdown("#### Таблица данных (редактируемая)")
     edited_df = st.data_editor(
         df,
@@ -135,7 +127,6 @@ def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
         key="main_table_editor"
     )
 
-    # Сохраняем изменения тренда/волны/тенденции
     for _, row in edited_df.iterrows():
         t = row["Тикер"]
         new_state = {
