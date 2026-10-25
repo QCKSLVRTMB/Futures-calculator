@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from data import vlookup, to_float, get_margin, fetch_moex_forts
 from rules import (
@@ -26,11 +26,10 @@ def check_zigzag_pattern(a, b, c, d, direction):
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d)"
 
 def generate_market_data(base_price, num_bars=60):
-    """Генерирует реалистичный рыночный график (бары + объем) для визуального анализа."""
-    np.random.seed(42) # Фиксируем seed, чтобы график не прыгал при каждом клике
+    """Генерирует реалистичный рыночный график для визуального анализа."""
+    np.random.seed(42) 
     dates = pd.date_range(end=datetime.today(), periods=num_bars, freq="D")
     
-    # Генерируем волнообразный тренд, чтобы было похоже на реальный рынок
     trend = np.linspace(0, 1, num_bars) * base_price * 0.05
     wave = np.sin(np.linspace(0, 3 * np.pi, num_bars)) * base_price * 0.03
     noise = np.random.normal(0, base_price * 0.005, num_bars)
@@ -41,7 +40,6 @@ def generate_market_data(base_price, num_bars=60):
     
     highs = np.maximum(opens, closes) + np.abs(np.random.normal(0, base_price * 0.002, num_bars))
     lows = np.minimum(opens, closes) - np.abs(np.random.normal(0, base_price * 0.002, num_bars))
-    
     volumes = np.random.randint(1000, 15000, num_bars)
     
     return pd.DataFrame({
@@ -81,13 +79,10 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
-    # ---------- 3. РЫНОЧНЫЙ ГРАФИК (Всегда виден) ----------
+    # ---------- 3. РЫНОЧНЫЙ ГРАФИК ----------
     st.markdown("#### 📊 График рынка")
-    
-    # Генерируем базовые данные для графика на основе рыночной цены
     df_chart = generate_market_data(market)
     
-    # Создаем фигуру Plotly (Цена + Объем)
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
     # Бары OHLC (Черные)
@@ -100,9 +95,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
     colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
     fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
 
-    # ---------- 4. ВВОД A-B-C-D и НАЛОЖЕНИЕ ЗИГЗАГА ----------
+    # ---------- 4. ВВОД A-B-C-D ----------
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
-    st.caption("Введите ценовые уровни. Линия зигзага появится на графике сверху.")
     
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -112,10 +106,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
-    # Если все точки введены, добавляем зигзаг на график
     if all_filled:
-        # Привязываем точки к последним 4-м значимым барам (для визуализации)
-        # Берем индексы: -40, -25, -10, -1
         zigzag_x = [df_chart.index[-40], df_chart.index[-25], df_chart.index[-10], df_chart.index[-1]]
         zigzag_y = [p_a, p_b, p_c, p_d]
         
@@ -135,10 +126,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
             st.success(zigzag_msg)
         else:
             st.warning(zigzag_msg)
-    else:
-        st.info("👆 Заполните все 4 точки, чтобы увидеть, как они ложатся на график.")
 
-    # Настройка внешнего вида графика
     fig.update_layout(
         height=500, margin=dict(l=10, r=10, t=10, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
@@ -153,7 +141,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
     if not all_filled:
         return
 
-    # Проверка логики расчета
     avg_entry = p_c
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
