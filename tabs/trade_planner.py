@@ -19,11 +19,12 @@ def check_zigzag_pattern(a, b, c, d, direction):
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
     if df_chart.empty:
         return None
 
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
+    # Увеличиваем высоту: row_heights смещены в сторону цены (0.8 к 0.2)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
     # 1. Бары OHLC (Черные)
     fig.add_trace(go.Ohlc(
@@ -60,19 +61,36 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
         colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
 
+    # Настройка Layout (высота 700)
     fig.update_layout(
         title=title,
-        height=400, margin=dict(l=10, r=10, t=30, b=10),
+        height=700, 
+        margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white', xaxis_rangeslider_visible=False, showlegend=False
     )
     
-    # Исключаем субботы и воскресенья (склеиваем выходные)
+    # 4. Настройка исключений (выходные и торговые часы)
+    rangebreaks = [dict(bounds=["sat", "mon"])]
+    if is_intraday:
+        # Скрываем время с 23:50 до 07:00 (23:50 в десятичном формате = 23.833)
+        rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
+
+    # 5. Отступ справа на 4 свечи
+    if len(df_chart) > 1:
+        delta = df_chart.index[-1] - df_chart.index[-2]
+        # Добавляем небольшой отступ слева и 4 свечи справа
+        x_range = [df_chart.index[0] - delta, df_chart.index[-1] + 4 * delta]
+    else:
+        x_range = None
+
     fig.update_xaxes(
         showgrid=True, 
         gridcolor='lightgray',
-        rangebreaks=[dict(bounds=["sat", "mon"])]
+        rangebreaks=rangebreaks,
+        range=x_range
     )
     fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right')
+    
     return fig
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
@@ -149,7 +167,14 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 continue
                 
             try:
-                fig = draw_chart(df_candles, p_a, p_b, p_c, p_d, title=f"{ticker} — {tf_name}")
+                # Определяем, является ли таймфрейм внутридневным
+                is_intraday = tf_name in ["H1", "M10"]
+                
+                fig = draw_chart(
+                    df_candles, p_a, p_b, p_c, p_d, 
+                    title=f"{ticker} — {tf_name}", 
+                    is_intraday=is_intraday
+                )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
