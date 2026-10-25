@@ -15,33 +15,45 @@ def render_main_tab(*, api_df, go_df, md_df, deposit, margin_type):
         available_tickers = []
 
     st.markdown("#### Выбор инструментов")
-    st.caption("Каждый выбранный тикер открывает отдельную вкладку с калькулятором позиции.")
+    st.caption(
+        "Каждый выбранный тикер открывает отдельную вкладку с калькулятором позиции."
+    )
+
+    # ---------- Текущее состояние ----------
+    current = st.session_state.get("active_tickers", [])
+
+    # Оставляем только те, что есть в ISS (для дефолта multiselect)
+    iss_selected = [t for t in current if t in available_tickers]
+
+    # Инициализируем поле ввода один раз
+    if "picker_txt" not in st.session_state:
+        # Тикеры, введённые вручную (которых нет в ISS), — возвращаем в поле
+        manual_current = [t for t in current if t not in available_tickers]
+        st.session_state["picker_txt"] = ", ".join(manual_current)
 
     c1, c2 = st.columns([3, 2])
     with c1:
         selected_from_iss = st.multiselect(
             "Выбрать из списка MOEX ISS",
             options=available_tickers,
-            default=st.session_state.get("active_tickers", []),
+            default=iss_selected,
             key="picker_ms",
             help="Показаны только контракты, по которым были торги в текущую сессию",
         )
     with c2:
         manual_input = st.text_input(
             "Ввести тикер вручную (через запятую)",
-            value=st.session_state.get("picker_txt", ""),
             key="picker_txt",
             help="Например: RIZ6, SiZ6",
         )
 
-    # ---------- Синхронизация со session_state ----------
+    # ---------- Синхронизация ----------
     manual_list = [x.strip().upper() for x in manual_input.split(",") if x.strip()]
-    new_active = list(dict.fromkeys(selected_from_iss + manual_list))  # dedup + порядок
-    current = st.session_state.get("active_tickers", [])
+    new_active = list(dict.fromkeys(selected_from_iss + manual_list))
 
     if new_active != current:
         st.session_state["active_tickers"] = new_active
-        st.rerun()  # перестроит вкладки
+        st.rerun()
 
     picked = st.session_state["active_tickers"]
     st.caption(
