@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from data import vlookup, to_float, get_margin
 from rules import lookup
@@ -12,41 +12,65 @@ def _div(a, b, default=0.0):
     return a / b if b else default
 
 def check_zigzag_pattern(a, b, c, d, direction):
+    """Проверяет паттерн зигзага и корректность расположения точек."""
     if direction == "LONG":
-        if a < b and b > c and c < d and b > d:
+        # a < b > c < d, b > d, а также a < c (чтобы SL был ниже входа)
+        if a < b and b > c and c < d and b > d and a < c:
             return True, "✅ Структура LONG соответствует: a<b>c<d (b>d)"
-        return False, "❌ Структура LONG НЕ соответствует: нужно a<b>c<d (b>d)"
-    else:
-        if a > b and b < c and c > d and b < d:
+        return False, "❌ Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
+    else: # SHORT
+        # a > b < c > d, b < d, а также a > c (чтобы SL был выше входа)
+        if a > b and b < c and c > d and b < d and a > c:
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
-        return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d)"
+        return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 def generate_market_data(base_price, num_bars=60):
-    np.random.seed(42) 
+    """Генерирует реалистичный рыночный график для визуального анализа."""
+    rng = np.random.default_rng(42) # Локальный генератор
     dates = pd.date_range(end=datetime.today(), periods=num_bars, freq="D")
+    
     trend = np.linspace(0, 1, num_bars) * base_price * 0.05
     wave = np.sin(np.linspace(0, 3 * np.pi, num_bars)) * base_price * 0.03
-    noise = np.random.normal(0, base_price * 0.005, num_bars)
+    noise = rng.normal(0, base_price * 0.005, num_bars)
+    
     closes = base_price + trend + wave + noise
     opens = np.roll(closes, 1)
     opens[0] = base_price
-    highs = np.maximum(opens, closes) + np.abs(np.random.normal(0, base_price * 0.002, num_bars))
-    lows = np.minimum(opens, closes) - np.abs(np.random.normal(0, base_price * 0.002, num_bars))
-    volumes = np.random.randint(1000, 15000, num_bars)
-    return pd.DataFrame({"Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes}, index=dates)
+    
+    highs = np.maximum(opens, closes) + np.abs(rng.normal(0, base_price * 0.002, num_bars))
+    lows = np.minimum(opens, closes) - np.abs(rng.normal(0, base_price * 0.002, num_bars))
+    volumes = rng.integers(1000, 15000, num_bars)
+    
+    return pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
+    }, index=dates)
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"🎯 Позиция: {ticker}")
 
+    # ---------- 1. Данные контракта ----------
     iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty else pd.DataFrame()
-    market = to_float(iss_row.iloc[0]["LAST"]) or to_float(iss_row.iloc[0]["PREVSETTLEPRICE"]) if not iss_row.empty else 100000.0
-    go = get_margin(go_df, ticker, "КСУР", "LONG") or (to_float(iss_row.iloc[0]["INITIALMARGIN"]) if not iss_row.empty else 25000.0)
+    
+    if not iss_row.empty:
+        market = to_float(iss_row.iloc[0].get("LAST")) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE"))
+    else:
+        market = 100000.0
+
+    # Исправлено: переменная называется margin_per_contract, чтобы не затенять plotly.graph_objects as go
+    margin_per_contract = get_margin(go_df, ticker, "КСУР", "LONG")
+    if margin_per_contract == 0 and not iss_row.empty:
+        margin_per_contract = to_float(iss_row.iloc[0].get("INITIALMARGIN"))
+    if margin_per_contract == 0:
+        margin_per_contract = 25000.0
+
     step_price = to_float(vlookup(api_df, ticker, 6)) or 10.0
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
-    state = st.session_state["market_state"].get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
+    # ---------- 2. Состояние рынка ----------
+    market_state = st.session_state.setdefault("market_state", {})
+    state = market_state.get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
     trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
     
     options_labels = {}
@@ -64,7 +88,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
-    # График
+    # ---------- 3. График ----------
     st.markdown("#### 📊 График рынка")
     df_chart = generate_market_data(market)
     
@@ -78,6 +102,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
     fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
 
+    # ---------- 4. Ввод A-B-C-D ----------
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -88,7 +113,15 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
     if all_filled:
-        zigzag_x = [df_chart.index[-40], df_chart.index[-25], df_chart.index[-10], df_chart.index[-1]]
+        # Безопасный расчет индексов для зигзага
+        n = len(df_chart)
+        step = max(1, n // 3)
+        zigzag_x = [
+            df_chart.index[0], 
+            df_chart.index[min(step, n-1)], 
+            df_chart.index[min(step*2, n-1)], 
+            df_chart.index[-1]
+        ]
         zigzag_y = [p_a, p_b, p_c, p_d]
         
         fig.add_trace(go.Scatter(
@@ -108,20 +141,29 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         else:
             st.warning(zigzag_msg)
 
-    fig.update_layout(height=500, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor='white', paper_bgcolor='white', xaxis_rangeslider_visible=False, showlegend=False)
+    fig.update_layout(
+        height=500, margin=dict(l=10, r=10, t=10, b=10),
+        plot_bgcolor='white', paper_bgcolor='white', xaxis_rangeslider_visible=False, showlegend=False
+    )
     fig.update_xaxes(showgrid=True, gridcolor='lightgray')
     fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right')
-    st.plotly_chart(fig, use_container_width=True)
+    
+    st.plotly_chart(fig, use_container_width=True) # В 1.66.1 лучше использовать width="stretch", но use_container_width тоже работает
 
     if not all_filled:
         return
 
+    # ---------- 5. Проверки и параметры сделки ----------
     avg_entry = p_c
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
     
-    if sl_points <= 0:
-        st.error("Стоп (SL) находится на уровне входа или неверно задан.")
+    # Жесткая проверка положения SL
+    if direction == "LONG" and sl_price >= avg_entry:
+        st.error("Для LONG SL (A) должен быть ниже входа (C). Проверьте точки.")
+        return
+    if direction == "SHORT" and sl_price <= avg_entry:
+        st.error("Для SHORT SL (B) должен быть выше входа (C). Проверьте точки.")
         return
         
     if direction == "LONG" and p_d <= p_c:
@@ -147,7 +189,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         return
 
     contracts = st.number_input("Количество контрактов", min_value=1, max_value=max_contracts_by_risk, value=max_contracts_by_risk, key=key("contracts"))
-    margin_used = contracts * go
+    margin_used = contracts * margin_per_contract
 
     st.markdown("---")
     st.markdown("#### 📈 Итоги расчета")
