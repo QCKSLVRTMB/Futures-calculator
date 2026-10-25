@@ -1,13 +1,7 @@
-# tabs/screener.py
 import streamlit as st
 import pandas as pd
-import requests
 from datetime import datetime
-
-MOEX_URL = (
-    "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
-    "?iss.meta=off&iss.only=securities,marketdata"
-)
+from data import fetch_moex_forts
 
 TARIFFS = {
     "Финам СТАНДАРТНЫЙ ФОРТС": {
@@ -20,89 +14,6 @@ TARIFFS = {
         "type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0,
     },
 }
-
-# Описание колонок: стандартное имя -> список возможных имён в ответе ISS.
-# Если ни одного варианта в ответе нет — колонка заполняется None (не падаем).
-SEC_COLS = {
-    "SECID":           ["SECID"],
-    "SHORTNAME":       ["SHORTNAME"],
-    "ASSETCODE":       ["ASSETCODE"],
-    "LOTSIZE":         ["LOTSIZE"],
-    "MINSTEP":         ["MINSTEP"],
-    "STEPPRICE":       ["STEPPRICE"],
-    "LASTTRADEDATE":   ["LASTTRADEDATE"],
-    "INITIALMARGIN":   ["INITIALMARGIN"],
-    "PREVPRICE":       ["PREVPRICE"],
-    "PREVSETTLEPRICE": ["PREVSETTLEPRICE"],
-    "BUYSELLFEE":      ["BUYSELLFEE"],
-}
-
-MKT_COLS = {
-    "SECID":         ["SECID"],
-    "LAST":          ["LAST"],
-    "VALTODAY":      ["VALTODAY"],
-    "OPENPOSITION":  ["OPENPOSITION"],
-    "HIGH":          ["HIGH"],
-    "LOW":           ["LOW"],
-    "UPDATETIME":    ["UPDATETIME"],
-    "LOTVOLUME":     ["LOTVOLUME", "NUMTRADES"],  # фоллбэк
-}
-
-
-def _pick_columns(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
-    """Возвращает DataFrame только с теми колонками, которые есть в ответе ISS.
-    Отсутствующие колонки создаются как None."""
-    out = pd.DataFrame()
-    for std_name, candidates in mapping.items():
-        found = False
-        for c in candidates:
-            if c in df.columns:
-                out[std_name] = df[c]
-                found = True
-                break
-        if not found:
-            out[std_name] = None
-    return out
-
-
-@st.cache_data(ttl=30, show_spinner="Загрузка данных MOEX ISS…")
-def fetch_moex_forts() -> pd.DataFrame:
-    try:
-        r = requests.get(MOEX_URL, timeout=15)
-        r.raise_for_status()
-        js = r.json()
-    except Exception as e:
-        st.error(f"Ошибка MOEX ISS: {e}")
-        return pd.DataFrame()
-
-    sec_raw = pd.DataFrame(js["securities"]["data"], columns=js["securities"]["columns"])
-    mkt_raw = pd.DataFrame(js["marketdata"]["data"], columns=js["marketdata"]["columns"])
-
-    sec = _pick_columns(sec_raw, SEC_COLS)
-    mkt = _pick_columns(mkt_raw, MKT_COLS)
-
-    df = sec.merge(mkt, on="SECID", how="left")
-
-    # Приводим числовые типы, отсутствующие колонки заполняем 0
-    numeric_cols = [
-        "BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
-        "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
-        "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME",
-    ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
-
-    # Стоимость контракта (Notional) — база для 0,1% у Т-Инвестиций
-    price = df["LAST"].where(df["LAST"] > 0, df["PREVSETTLEPRICE"])
-    multiplier = df["STEPPRICE"] / df["MINSTEP"].replace(0, 1)
-    df["Notional"] = price * multiplier
-
-    df["Updated"] = pd.to_datetime(df["UPDATETIME"], errors="coerce")
-    return df
-
 
 def render_screener():
     st.subheader("🔍 Скринер фьючерсов MOEX")
@@ -119,6 +30,7 @@ def render_screener():
 
     t_conf = TARIFFS[selected_tariff]
 
+    # ---------- Загрузка данных ----------
     df = fetch_moex_forts()
     if df.empty:
         st.info("Нет данных MOEX ISS — проверьте подключение.")
