@@ -2,86 +2,84 @@ import streamlit as st
 import pandas as pd
 from data import vlookup, to_float, get_margin, fetch_moex_forts
 from rules import (
-    RISK_LEVELS, RISK_LEVEL_DESCRIPTIONS, RISK_LEVEL_ICONS, lookup
+    RISK_LEVELS, RISK_LEVEL_DESCRIPTIONS, RISK_LEVEL_ICONS, 
+    lookup, build_formula
 )
 
 def _div(a, b, default=0.0):
     return a / b if b else default
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit, rules_map):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"🎯 Позиция: {ticker}")
 
-    # ---------- 1. Получаем состояние рынка из глобального хранилища ----------
+    # ---------- 1. Берем состояние рынка из главной вкладки ----------
     state = st.session_state["market_state"].get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
     trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
 
-    st.markdown("#### 📡 Текущее состояние рынка (с вкладки Данные):")
-    st.info(f"Тренд: **{trend.capitalize()}** | Волна: **{wave.capitalize()}** | Тенденция: **{tendency.capitalize()}**")
+    st.markdown(f"#### 📡 Состояние рынка: Тренд **{trend.capitalize()}** | Волна **{wave.capitalize()}** | Тенденция **{tendency.capitalize()}**")
 
-    # ---------- 2. Формируем доступные сценарии (Зеленые/Красные/Серые) ----------
-    options = {}
-    table_rows = []
+    # ---------- 2. Собираем 4 сценария (Тренд/Контртренд на LONG/SHORT) ----------
+    scenarios = []
+    options_labels = {}
     
     for tt in ["трендовая", "контртренд"]:
         for d in ["LONG", "SHORT"]:
-            rule = lookup(rules_map, trend, wave, tendency, tt, d)
+            rule = lookup(trend, wave, tendency, tt, d)
             
-            # Если правило есть в таблице
             if rule is not None:
                 is_forbidden = rule["is_forbidden"]
-                status = "⛔ Не торгуется" if is_forbidden else "✅ Разрешено"
                 
                 if is_forbidden:
                     label = f"⚪️ {tt.capitalize()} {d}"
                     color = "#e2e3e5" # Серый
+                    status = "⛔ Не торгуется"
                 elif tt == "трендовая":
                     label = f"🟢 {tt.capitalize()} {d}"
                     color = "#d4edda" # Зеленый
+                    status = "✅ Разрешено"
                 else:
-                    label = f"🔴 {tt.capitalize()} {d} (Рискованно)"
+                    label = f"🔴 {tt.capitalize()} {d}"
                     color = "#f8d7da" # Красный
+                    status = "⚠️ Рискованно"
                 
-                options[label] = (tt, d, rule, not is_forbidden)
+                options_labels[label] = (tt, d, rule, not is_forbidden)
                 
-                # Данные для красивого отображения справки
-                table_rows.append({
+                scenarios.append({
                     "Сценарий": f"{tt.capitalize()} {d}",
                     "Статус": status,
-                    "Описание правила": rule["description"] if rule["description"] else "-",
+                    "Рекомендация (Описание торговли)": rule["description"] if rule["description"] else "-",
                     "_color": color
                 })
 
-    if not options:
-        st.error("❌ Для данного состояния рынка нет настроенных правил.")
-        return
-
-    st.markdown("#### 📖 Справка по сценариям (из правил)")
-    df_help = pd.DataFrame(table_rows)
+    # ---------- 3. Красивая справка с цветами ----------
+    st.markdown("#### 📖 Справка по торговле (Рекомендации)")
+    df_help = pd.DataFrame(scenarios)
     
-    # Красим строки в зеленый/красный/серый (как на скриншоте)
     def _row_color(row):
-        return [f"background-color: {row['_color']}"] * len(row)
-    
+        return [f"background-color: {row['_color']}; color: black;" for _ in row]
+
     st.dataframe(
         df_help.style.apply(_row_color, axis=1).hide(axis="columns", subset=["_color"]),
         use_container_width=True,
         hide_index=True
     )
 
-    # ---------- 3. Выбор сценария ----------
+    # ---------- 4. Выбор сценария для калькулятора ----------
     st.markdown("#### 🎯 Выбор сценария для расчета")
-    selected_label = st.radio("Выберите сценарий:", list(options.keys()), key=key("scenario"))
-    tt, direction, rule, is_valid = options[selected_label]
-
-    if not is_valid:
-        st.error("⛔ Комбинация помечена как **«Не торгуется»**. Выберите другой сценарий.")
+    valid_options = {k: v for k, v in options_labels.items() if v[3]} # Оставляем только разрешенные
+    
+    if not valid_options:
+        st.error("❌ Для данного состояния рынка нет разрешенных сценариев (все запрещены или отсутствуют).")
         return
 
+    selected_label = st.selectbox("Какой сценарий рассчитываем?", list(valid_options.keys()), key=key("scenario"))
+    tt, direction, rule, _ = valid_options[selected_label]
+
     if tt == "трендовая":
-        st.success(f"**📝 Рекомендация (Торговля по тренду):** {rule['description']}")
+        st.success(f"**Трендовая торговля:** {rule['description']}")
     else:
-        st.error(f"**📝 Рекомендация (Контртренд — повышенный риск):** {rule['description']}")
+        st.warning(f"**Контртрендовая торговля (Рискованно):** {rule['description']}")
 
     risk_level = rule["risk_level"]
     st.markdown(f"**🛡️ Уровень ГО:** {RISK_LEVEL_ICONS.get(risk_level,'')} **{risk_level}** — {RISK_LEVEL_DESCRIPTIONS[risk_level]}")
@@ -89,9 +87,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit, rules_map):
     override = st.checkbox("Переопределить ГО вручную", key=key("override"))
     if override:
         risk_level = st.selectbox("Уровень ГО", RISK_LEVELS, index=RISK_LEVELS.index(risk_level), key=key("risk_override"))
-        st.warning(f"⚠️ Ручной override: **{risk_level}** ({RISK_LEVEL_DESCRIPTIONS[risk_level]}). Правило требовало **{rule['risk_level']}**.")
 
-    # ---------- 4. Спецификация контракта ----------
+    # ---------- 5. Данные контракта (ISS + Google) ----------
     iss_df = fetch_moex_forts()
     iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty else pd.DataFrame()
     
@@ -125,18 +122,15 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit, rules_map):
     h[3].metric(f"ГО {risk_level}", f"{go:,.0f} ₽")
     h[4].metric("Рынок", f"{market:,.2f}")
 
-    # ---------- 5. Параметры расчета ----------
+    # ---------- 6. Параметры расчета ----------
     st.markdown("#### ⚙️ Параметры расчета")
     p1, p2, p3 = st.columns(3)
-    risk_pct = p1.number_input(
-        "Риск, % от депозита", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"),
-        help="Индивидуальный риск для этой позиции"
-    )
+    risk_pct = p1.number_input("Риск, % от депозита", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
     rr_safe  = p2.number_input("Безопасный RR", value=3.0, step=0.5, key=key("rr"))
     tp_price = p3.number_input("TP", value=float(market), key=key("tp"))
     sl_price = st.number_input("SL", value=float(market), key=key("sl"))
 
-    # ---------- 6. Точки входа ----------
+    # ---------- 7. Точки входа ----------
     st.markdown("#### 📍 Точки входа")
     entries = st.data_editor(
         pd.DataFrame({"Цена": [0.0] * 4, "Контрактов": [0] * 4}),
@@ -158,7 +152,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit, rules_map):
     if margin_used > deposit * 0.75:
         st.warning(f"Загрузка ГО {margin_used/deposit*100:.1f}% > 75% депозита")
 
-    # ---------- 7. Расчёты ----------
+    # ---------- 8. Расчёты ----------
     delta_tp = (tp_price - avg_entry) if direction == "LONG" else (avg_entry - tp_price)
     delta_sl = (avg_entry - sl_price) if direction == "LONG" else (sl_price - avg_entry)
 
@@ -170,7 +164,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, deposit, rules_map):
     rr_ok = rr_actual >= rr_safe
     max_by_risk = int(risk_budget / (abs(delta_sl) * pv)) if delta_sl and pv else 0
 
-    # ---------- 8. Результаты ----------
+    # ---------- 9. Результаты ----------
     st.markdown("#### 📊 Результаты")
     a, b, c, d = st.columns(4)
     a.metric("Ср. вход", f"{avg_entry:,.2f}")
