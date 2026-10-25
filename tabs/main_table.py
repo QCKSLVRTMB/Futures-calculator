@@ -3,77 +3,77 @@ import pandas as pd
 from data import vlookup, to_float, MARGIN_COL_MAP
 from rules import TREND_VALUES
 
+def update_active_tickers():
+    """Обновляет список тикеров при изменении полей ввода."""
+    selected_iss = st.session_state.get("picker_ms", [])
+    manual_txt = st.session_state.get("picker_txt", "")
+    manual_list = [x.strip().upper() for x in manual_txt.split(",") if x.strip()]
+    st.session_state["active_tickers"] = list(dict.fromkeys(selected_iss + manual_list))
+
 def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
     st.subheader("📊 Данные с биржи")
 
-    if not iss_df.empty:
+    if not iss_df.empty and "VALTODAY" in iss_df.columns:
         active_iss = iss_df[iss_df["VALTODAY"].fillna(0) > 0]
         available_tickers = sorted(active_iss["SECID"].dropna().unique().tolist())
     else:
         available_tickers = []
 
-    st.markdown("#### Выбор инструментов")
-    st.caption("Каждый выбранный тикер открывает отдельную вкладку с калькулятором позиции.")
-
-    current = st.session_state.get("active_tickers", [])
-    iss_selected = [t for t in current if t in available_tickers]
-
+    if "active_tickers" not in st.session_state:
+        st.session_state["active_tickers"] = []
+    if "picker_ms" not in st.session_state:
+        st.session_state["picker_ms"] = [t for t in st.session_state["active_tickers"] if t in available_tickers]
     if "picker_txt" not in st.session_state:
-        manual_current = [t for t in current if t not in available_tickers]
-        st.session_state["picker_txt"] = ", ".join(manual_current)
+        manual = [t for t in st.session_state["active_tickers"] if t not in available_tickers]
+        st.session_state["picker_txt"] = ", ".join(manual)
 
+    st.markdown("#### Выбор инструментов")
+    
     c1, c2 = st.columns([3, 2])
     with c1:
-        selected_from_iss = st.multiselect(
+        st.multiselect(
             "Выбрать из списка MOEX ISS",
             options=available_tickers,
-            default=iss_selected,
             key="picker_ms",
+            on_change=update_active_tickers
         )
     with c2:
-        manual_input = st.text_input(
+        st.text_input(
             "Ввести тикер вручную (через запятую)",
             key="picker_txt",
+            on_change=update_active_tickers
         )
-
-    manual_list = [x.strip().upper() for x in manual_input.split(",") if x.strip()]
-    new_active = list(dict.fromkeys(selected_from_iss + manual_list))
-
-    if new_active != current:
-        st.session_state["active_tickers"] = new_active
-        st.rerun()
 
     picked = st.session_state["active_tickers"]
     if not picked:
         st.info("👆 Выберите хотя бы один тикер для отображения данных.")
         return
 
-    # ---------- Формирование таблицы ----------
-    col_go, _ = MARGIN_COL_MAP[margin_type]
+    col_go, _ = MARGIN_COL_MAP.get(margin_type, (4, 5))
     rows = []
     
     for t in picked:
-        iss_row = iss_df[iss_df["SECID"] == t] if not iss_df.empty else pd.DataFrame()
+        iss_row = iss_df[iss_df["SECID"] == t] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
         
         price = 0.0
         if not iss_row.empty:
-            price = to_float(iss_row.iloc[0]["LAST"])
+            price = to_float(iss_row.iloc[0].get("LAST", 0))
             if price == 0:
-                price = to_float(iss_row.iloc[0]["PREVSETTLEPRICE"])
+                price = to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
         if price == 0:
             price = to_float(vlookup(md_df, t, 9))
             
         step_price, step_cost = 0.0, 0.0
         if not iss_row.empty:
-            step_price = to_float(iss_row.iloc[0]["MINSTEP"])
-            step_cost = to_float(iss_row.iloc[0]["STEPPRICE"])
+            step_price = to_float(iss_row.iloc[0].get("MINSTEP", 0))
+            step_cost = to_float(iss_row.iloc[0].get("STEPPRICE", 0))
         if step_price == 0:
             step_price = to_float(vlookup(api_df, t, 6))
             step_cost = to_float(vlookup(api_df, t, 17))
 
         margin = 0.0
         if not iss_row.empty:
-            margin = to_float(iss_row.iloc[0]["INITIALMARGIN"])
+            margin = to_float(iss_row.iloc[0].get("INITIALMARGIN", 0))
         if margin == 0:
             margin = to_float(vlookup(go_df, t, col_go))
 
@@ -81,9 +81,9 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
         name_gs = vlookup(api_df, t, 3)
         expiry_gs = vlookup(api_df, t, 7)
         
-        code = code_gs if code_gs != "-" else (iss_row.iloc[0]["ASSETCODE"] if not iss_row.empty else "-")
-        name = name_gs if name_gs != "-" else (iss_row.iloc[0]["SHORTNAME"] if not iss_row.empty else "-")
-        expiry = expiry_gs if expiry_gs != "-" else (str(iss_row.iloc[0]["LASTTRADEDATE"]) if not iss_row.empty else "-")
+        code = code_gs if code_gs != "-" else (iss_row.iloc[0].get("ASSETCODE", "-") if not iss_row.empty else "-")
+        name = name_gs if name_gs != "-" else (iss_row.iloc[0].get("SHORTNAME", "-") if not iss_row.empty else "-")
+        expiry = expiry_gs if expiry_gs != "-" else (str(iss_row.iloc[0].get("LASTTRADEDATE", "-")) if not iss_row.empty else "-")
 
         max_contracts = int(deposit // margin) if margin > 0 else 0
         risk_pct = round(margin / deposit * 100, 2) if margin > 0 else 0.0
@@ -108,7 +108,7 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
         
     df = pd.DataFrame(rows)
 
-    st.markdown("#### Таблица данных (редактируемая)")
+    st.markdown("#### Таблица данных")
     edited_df = st.data_editor(
         df,
         use_container_width=True,
