@@ -1,14 +1,15 @@
 import pandas as pd
 import streamlit as st
 import requests
+from datetime import datetime, timedelta
 
 # ВАЖНО: Замените на ваш ID таблицы и GID вкладок!
 SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ_ИЗ_ССЫЛКИ"
 GIDS = {
-    "API": "0",         # Замените на реальный gid
-    "MARKETDATA": "0",  # Замените на реальный gid
-    "ГО": "0",          # Замените на реальный gid
-    "Списки": "0",      # Замените на реальный gid
+    "API": "0",
+    "MARKETDATA": "0",
+    "ГО": "0",
+    "Списки": "0",
 }
 
 MARGIN_COL_MAP = {
@@ -63,7 +64,7 @@ def get_margin(go_df, ticker, risk_level, direction) -> float:
 
 
 # ==========================================
-# 2. ЗАГРУЗКА ИЗ MOEX ISS (Для Скринера и Главной)
+# 2. ЗАГРУЗКА ИЗ MOEX ISS (Текущие данные)
 # ==========================================
 MOEX_URL = (
     "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
@@ -71,28 +72,16 @@ MOEX_URL = (
 )
 
 SEC_COLS = {
-    "SECID":           ["SECID"],
-    "SHORTNAME":       ["SHORTNAME"],
-    "ASSETCODE":       ["ASSETCODE"],
-    "LOTSIZE":         ["LOTSIZE"],
-    "MINSTEP":         ["MINSTEP"],
-    "STEPPRICE":       ["STEPPRICE"],
-    "LASTTRADEDATE":   ["LASTTRADEDATE"],
-    "INITIALMARGIN":   ["INITIALMARGIN"],
-    "PREVPRICE":       ["PREVPRICE"],
-    "PREVSETTLEPRICE": ["PREVSETTLEPRICE"],
-    "BUYSELLFEE":      ["BUYSELLFEE"],
+    "SECID": ["SECID"], "SHORTNAME": ["SHORTNAME"], "ASSETCODE": ["ASSETCODE"],
+    "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
+    "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
+    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], "BUYSELLFEE": ["BUYSELLFEE"],
 }
 
 MKT_COLS = {
-    "SECID":         ["SECID"],
-    "LAST":          ["LAST"],
-    "VALTODAY":      ["VALTODAY"],
-    "OPENPOSITION":  ["OPENPOSITION"],
-    "HIGH":          ["HIGH"],
-    "LOW":           ["LOW"],
-    "UPDATETIME":    ["UPDATETIME"],
-    "LOTVOLUME":     ["LOTVOLUME", "NUMTRADES"],
+    "SECID": ["SECID"], "LAST": ["LAST"], "VALTODAY": ["VALTODAY"],
+    "OPENPOSITION": ["OPENPOSITION"], "HIGH": ["HIGH"], "LOW": ["LOW"],
+    "UPDATETIME": ["UPDATETIME"], "LOTVOLUME": ["LOTVOLUME", "NUMTRADES"],
 }
 
 def _pick_columns(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
@@ -126,11 +115,9 @@ def fetch_moex_forts() -> pd.DataFrame:
 
     df = sec.merge(mkt, on="SECID", how="left")
 
-    numeric_cols = [
-        "BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
-        "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
-        "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME",
-    ]
+    numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
+                    "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
+                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -140,6 +127,48 @@ def fetch_moex_forts() -> pd.DataFrame:
     price = df["LAST"].where(df["LAST"] > 0, df["PREVSETTLEPRICE"])
     multiplier = df["STEPPRICE"] / df["MINSTEP"].replace(0, 1)
     df["Notional"] = price * multiplier
-
     df["Updated"] = pd.to_datetime(df["UPDATETIME"], errors="coerce")
+    return df
+
+
+# ==========================================
+# 3. ЗАГРУЗКА СВЕЧЕЙ (Исторические данные)
+# ==========================================
+MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/{ticker}/candles.json"
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.DataFrame:
+    from_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    params = {"interval": interval, "from": from_date, "iss.meta": "off"}
+    
+    try:
+        r = requests.get(MOEX_CANDLES_URL.format(ticker=ticker), params=params, timeout=15)
+        r.raise_for_status()
+        js = r.json()
+    except Exception:
+        return pd.DataFrame()
+
+    block = js.get("candles")
+    if not block or not block.get("data"):
+        return pd.DataFrame()
+
+    df = pd.DataFrame(block["data"], columns=block["columns"])
+    
+    # Проверка на наличие нужных колонок
+    required = ["begin", "open", "high", "low", "close"]
+    if not all(col in df.columns for col in required):
+        return pd.DataFrame()
+
+    df = df.rename(columns={"begin": "Date", "open": "Open", "high": "High",
+                            "low": "Low", "close": "Close", "volume": "Volume"})
+    
+    # Если volume отсутствует, создаем нулевой
+    if "Volume" not in df.columns:
+        df["Volume"] = 0
+
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date").sort_index()
+    
+    # Очистка от NaN
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
     return df
