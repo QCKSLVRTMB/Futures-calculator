@@ -13,15 +13,8 @@ with st.sidebar:
     deposit = st.number_input(
         "Депозит, ₽", min_value=1_000, value=75_000, step=1_000, key="deposit"
     )
-    risk_pct = st.number_input(
-        "Риск, % от депозита",
-        min_value=0.1, max_value=100.0, value=1.0, step=0.1,
-        key="global_risk_pct",
-        help="Значение по умолчанию для всех калькуляторов. "
-             "На каждой вкладке с тикером можно переопределить.",
-    )
     margin_type = st.selectbox(
-        "Тип ГО (для обзора)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"],
+        "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"],
         key="margin_type",
     )
     if st.button("🔄 Обновить данные"):
@@ -38,8 +31,10 @@ rules_map = build_rules_map(rules_df)
 # ---------- Инициализация активных тикеров ----------
 if "active_tickers" not in st.session_state:
     st.session_state["active_tickers"] = []
+if "market_state" not in st.session_state:
+    st.session_state["market_state"] = {} # Формат: {"RIZ6": {"trend": "вверх", "wave": "вниз", "tendency": "рейндж"}}
 
-# ---------- Построение имён вкладок (до отрисовки!) ----------
+# ---------- Построение имён вкладок ----------
 tab_names = ["📊 Данные с биржи", "🔍 Скринер"] + st.session_state["active_tickers"]
 tabs = st.tabs(tab_names)
 
@@ -61,6 +56,5 @@ for i, ticker in enumerate(st.session_state["active_tickers"]):
             ticker=ticker,
             api_df=api_df, go_df=go_df, md_df=md_df,
             deposit=deposit,
-            default_risk_pct=risk_pct,
             rules_map=rules_map,
         )
