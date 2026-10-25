@@ -10,23 +10,26 @@ def _div(a, b, default=0.0):
     return a / b if b else default
 
 def check_zigzag_pattern(a, b, c, d, direction):
-    """Проверяет паттерн зигзага и корректность расположения точек."""
     if direction == "LONG":
         if a < b and b > c and c < d and b > d and a < c:
             return True, "✅ Структура LONG соответствует: a<b>c<d (b>d)"
         return False, "❌ Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
-    else: # SHORT
+    else:
         if a > b and b < c and c > d and b < d and a > c:
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
     """Отрисовывает график с барами OHLC, объемом и (опционально) зигзагом."""
+    if df_chart.empty:
+        return None
+
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
     # 1. Бары OHLC (Черные)
     fig.add_trace(go.Ohlc(
-        x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'],
+        x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], 
+        low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black', name='Рынок'
     ), row=1, col=1)
 
@@ -53,9 +56,10 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
             name='Зигзаг'
         ), row=1, col=1)
 
-    # 3. Объем
-    colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
-    fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
+    # 3. Объем (безопасная проверка на наличие колонки)
+    if 'Volume' in df_chart.columns:
+        colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
+        fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
 
     fig.update_layout(
         title=title,
@@ -140,11 +144,10 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 continue
                 
             fig = draw_chart(
-                df_candles,
-                p_a, p_b, p_c, p_d,
-                title=f"{ticker} — {tf_name}"
+                df_candles, p_a, p_b, p_c, p_d, title=f"{ticker} — {tf_name}"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
 
     if not all_filled:
         return
