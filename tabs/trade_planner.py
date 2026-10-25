@@ -20,20 +20,17 @@ def check_zigzag_pattern(a, b, c, d, direction):
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
-    """Отрисовывает график с барами OHLC, объемом и (опционально) зигзагом."""
     if df_chart.empty:
         return None
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
-    # 1. Бары OHLC (Черные)
     fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], 
         low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black', name='Рынок'
     ), row=1, col=1)
 
-    # 2. Зигзаг (если точки заданы)
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
         n = len(df_chart)
         step = max(1, n // 3)
@@ -56,7 +53,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
             name='Зигзаг'
         ), row=1, col=1)
 
-    # 3. Объем (безопасная проверка на наличие колонки)
     if 'Volume' in df_chart.columns:
         colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
@@ -74,17 +70,16 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"🎯 Позиция: {ticker}")
 
-    # ---------- 1. Данные контракта ----------
-    iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty else pd.DataFrame()
+    iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
     
     if not iss_row.empty:
-        market = to_float(iss_row.iloc[0].get("LAST")) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE"))
+        market = to_float(iss_row.iloc[0].get("LAST", 0)) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
     else:
         market = 100000.0
 
     margin_per_contract = get_margin(go_df, ticker, "КСУР", "LONG")
     if margin_per_contract == 0 and not iss_row.empty:
-        margin_per_contract = to_float(iss_row.iloc[0].get("INITIALMARGIN"))
+        margin_per_contract = to_float(iss_row.iloc[0].get("INITIALMARGIN", 0))
     if margin_per_contract == 0:
         margin_per_contract = 25000.0
 
@@ -92,7 +87,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
-    # ---------- 2. Состояние рынка ----------
     market_state = st.session_state.setdefault("market_state", {})
     state = market_state.get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
     trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
@@ -112,7 +106,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
-    # ---------- 3. Ввод A-B-C-D ----------
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -129,9 +122,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         else:
             st.warning(zigzag_msg)
 
-    # ---------- 4. Графики (D1, H1, M10) - РЕАЛЬНЫЕ ДАННЫЕ ----------
     st.markdown("#### 📊 Графики рынка (MOEX ISS)")
-    
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
     intervals = {"D1": 24, "H1": 60, "M10": 10}
 
@@ -143,16 +134,16 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
                 continue
                 
-            fig = draw_chart(
-                df_candles, p_a, p_b, p_c, p_d, title=f"{ticker} — {tf_name}"
-            )
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
+            try:
+                fig = draw_chart(df_candles, p_a, p_b, p_c, p_d, title=f"{ticker} — {tf_name}")
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
     if not all_filled:
         return
 
-    # ---------- 5. Проверки и параметры сделки ----------
     avg_entry = p_c
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
