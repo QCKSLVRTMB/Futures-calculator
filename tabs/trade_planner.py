@@ -1,55 +1,27 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime
 
-from data import vlookup, to_float, get_margin
+from data import vlookup, to_float, get_margin, fetch_moex_candles
 from rules import lookup
 
 def _div(a, b, default=0.0):
     return a / b if b else default
 
 def check_zigzag_pattern(a, b, c, d, direction):
+    """Проверяет паттерн зигзага и корректность расположения точек."""
     if direction == "LONG":
         if a < b and b > c and c < d and b > d and a < c:
             return True, "✅ Структура LONG соответствует: a<b>c<d (b>d)"
         return False, "❌ Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
-    else:
+    else: # SHORT
         if a > b and b < c and c > d and b < d and a > c:
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
-def generate_market_data(base_price, freq, num_bars=60):
-    """Генерирует реалистичный рыночный график для указанного таймфрейма."""
-    rng = np.random.default_rng(42)
-    
-    # Для разных таймфреймов разная волатильность
-    vol_multiplier = 1.0
-    if freq == "h": vol_multiplier = 0.2
-    elif freq == "10min": vol_multiplier = 0.05
-    
-    dates = pd.date_range(end=datetime.today(), periods=num_bars, freq=freq)
-    
-    trend = np.linspace(0, 1, num_bars) * base_price * 0.05 * vol_multiplier
-    wave = np.sin(np.linspace(0, 3 * np.pi, num_bars)) * base_price * 0.03 * vol_multiplier
-    noise = rng.normal(0, base_price * 0.005 * vol_multiplier, num_bars)
-    
-    closes = base_price + trend + wave + noise
-    opens = np.roll(closes, 1)
-    opens[0] = base_price
-    
-    highs = np.maximum(opens, closes) + np.abs(rng.normal(0, base_price * 0.002 * vol_multiplier, num_bars))
-    lows = np.minimum(opens, closes) - np.abs(rng.normal(0, base_price * 0.002 * vol_multiplier, num_bars))
-    volumes = rng.integers(1000, 15000, num_bars)
-    
-    return pd.DataFrame({
-        "Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes
-    }, index=dates)
-
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
-    """Отрисовывает график с барами, объемом и (опционально) зигзагом."""
+    """Отрисовывает график с барами OHLC, объемом и (опционально) зигзагом."""
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
     # 1. Бары OHLC (Черные)
@@ -153,28 +125,26 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         else:
             st.warning(zigzag_msg)
 
-    # ---------- 4. Графики (D1, H1, M10) ----------
-    st.markdown("#### 📊 Графики рынка")
+    # ---------- 4. Графики (D1, H1, M10) - РЕАЛЬНЫЕ ДАННЫЕ ----------
+    st.markdown("#### 📊 Графики рынка (MOEX ISS)")
     
-    # Генерируем данные для разных таймфреймов
-    df_d1 = generate_market_data(market, freq="D")
-    df_h1 = generate_market_data(market, freq="h")
-    df_m10 = generate_market_data(market, freq="10min")
-
-    # Создаем вкладки для графиков
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
+    intervals = {"D1": 24, "H1": 60, "M10": 10}
 
-    with chart_tabs[0]:
-        fig_d1 = draw_chart(df_d1, p_a, p_b, p_c, p_d, title="Дневной график (D1)")
-        st.plotly_chart(fig_d1, use_container_width=True)
-
-    with chart_tabs[1]:
-        fig_h1 = draw_chart(df_h1, p_a, p_b, p_c, p_d, title="Часовой график (H1)")
-        st.plotly_chart(fig_h1, use_container_width=True)
-
-    with chart_tabs[2]:
-        fig_m10 = draw_chart(df_m10, p_a, p_b, p_c, p_d, title="10-минутный график (M10)")
-        st.plotly_chart(fig_m10, use_container_width=True)
+    for tab, (tf_name, tf_interval) in zip(chart_tabs, intervals.items()):
+        with tab:
+            df_candles = fetch_moex_candles(ticker, interval=tf_interval, days_back=60)
+            
+            if df_candles.empty:
+                st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
+                continue
+                
+            fig = draw_chart(
+                df_candles,
+                p_a, p_b, p_c, p_d,
+                title=f"{ticker} — {tf_name}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     if not all_filled:
         return
