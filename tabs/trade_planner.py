@@ -25,12 +25,14 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
+    # 1. Бары OHLC (Черные)
     fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], 
         low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black', name='Рынок'
     ), row=1, col=1)
 
+    # 2. Зигзаг (если точки заданы)
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
         n = len(df_chart)
         step = max(1, n // 3)
@@ -53,6 +55,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
             name='Зигзаг'
         ), row=1, col=1)
 
+    # 3. Объем
     if 'Volume' in df_chart.columns:
         colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
@@ -62,7 +65,13 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title=""):
         height=400, margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white', xaxis_rangeslider_visible=False, showlegend=False
     )
-    fig.update_xaxes(showgrid=True, gridcolor='lightgray')
+    
+    # Исключаем субботы и воскресенья (склеиваем выходные)
+    fig.update_xaxes(
+        showgrid=True, 
+        gridcolor='lightgray',
+        rangebreaks=[dict(bounds=["sat", "mon"])]
+    )
     fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right')
     return fig
 
@@ -70,6 +79,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"🎯 Позиция: {ticker}")
 
+    # ---------- 1. Данные контракта ----------
     iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
     
     if not iss_row.empty:
@@ -87,6 +97,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
+    # ---------- 2. Состояние рынка ----------
     market_state = st.session_state.setdefault("market_state", {})
     state = market_state.get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
     trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
@@ -106,6 +117,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
+    # ---------- 3. Ввод A-B-C-D ----------
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -122,7 +134,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         else:
             st.warning(zigzag_msg)
 
+    # ---------- 4. Графики (D1, H1, M10) ----------
     st.markdown("#### 📊 Графики рынка (MOEX ISS)")
+    
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
     intervals = {"D1": 24, "H1": 60, "M10": 10}
 
@@ -144,6 +158,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     if not all_filled:
         return
 
+    # ---------- 5. Проверки ----------
     avg_entry = p_c
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
@@ -162,6 +177,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.error("Для SHORT точка D должна быть ниже C.")
         return
 
+    # ---------- 6. Параметры сделки ----------
     st.markdown("#### ⚙️ Параметры сделки")
     p1, p2 = st.columns(2)
     risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
@@ -180,6 +196,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     contracts = st.number_input("Количество контрактов", min_value=1, max_value=max_contracts_by_risk, value=max_contracts_by_risk, key=key("contracts"))
     margin_used = contracts * margin_per_contract
 
+    # ---------- 7. Итоги ----------
     st.markdown("---")
     st.markdown("#### 📈 Итоги расчета")
     profit_rub = abs(tp_price - avg_entry) * pv * contracts
