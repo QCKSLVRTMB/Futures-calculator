@@ -80,23 +80,19 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
                 if short_m <= 0: short_m = init_m
         return long_m, short_m
 
-    long_list, short_list, source_list = [], [], []
+    long_list, short_list = [], []
     for t in df["SECID"]:
         l, s = _margin_from_ims(t)
-        if l > 0 and s > 0:
-            source_list.append("IMS")
-        else:
+        if l <= 0 or s <= 0:
             l2, s2 = _margin_fallback(t)
             l = l if l > 0 else l2
             s = s if s > 0 else s2
-            source_list.append("FALLBACK")
         long_list.append(l)
         short_list.append(s)
 
     df["MarginLong"]  = long_list
     df["MarginShort"] = short_list
     df["MarginUsed"]  = df[["MarginLong", "MarginShort"]].min(axis=1)
-    df["MarginSrc"]   = source_list
 
     def _max_contracts(m, dep):
         try:
@@ -126,18 +122,10 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             f"Источник ГО: IMS (`{buy_col}` / `{sell_col}`){sample_text}"
         )
     else:
-        missing = []
-        if not ims_has_buy: missing.append(buy_col)
-        if not ims_has_sell: missing.append(sell_col)
-        st.warning(
-            f"В IMS нет колонок `{', '.join(missing)}` для уровня **{margin_type}** — "
-            f"используется fallback (Google Sheets / INITIALMARGIN из ISS). "
-            f"ГО для разных уровней может совпадать. Нажмите «Обновить данные» в sidebar, "
-            f"чтобы перезагрузить IMS, или выберите другой тип ГО."
+        st.caption(
+            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · "
+            f"Источник ГО: Google Sheets / INITIALMARGIN"
         )
-
-    if ims_df is None or ims_df.empty:
-        st.info("Данные ГО (IMS) недоступны — используется Google Sheets / INITIALMARGIN.")
 
     # ============ ФИЛЬТРЫ ============
     f1, f2, f3, f4 = st.columns([2, 2, 2, 1])
@@ -261,8 +249,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             "Тикер": st.column_config.TextColumn(width="small"),
             "Краткое наименование": st.column_config.TextColumn(width="medium"),
             "Дата": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
-            "ГО LONG": st.column_config.NumberColumn(help=f"ГО на покупку из IMS ({buy_col}) по уровню {margin_type}"),
-            "ГО SHORT": st.column_config.NumberColumn(help=f"ГО на продажу из IMS ({sell_col}) по уровню {margin_type}"),
+            "ГО LONG": st.column_config.NumberColumn(help=f"ГО на покупку по уровню {margin_type}"),
+            "ГО SHORT": st.column_config.NumberColumn(help=f"ГО на продажу по уровню {margin_type}"),
             "ГО (min)": st.column_config.NumberColumn(help="min(ГО LONG, ГО SHORT) — используется для расчёта"),
             "Макс. контрактов": st.column_config.NumberColumn(help="Депозит / ГО (min)"),
         },
