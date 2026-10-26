@@ -81,14 +81,11 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
         if max_pts is None or len(new_pts) < max_pts:
             if tool == "channel":
                 if len(new_pts) == 0:
-                    # Клик 1: запоминаем координату клика
                     new_pts.append([str(bar.name), y])
                 elif len(new_pts) == 1:
-                    # Клик 2: строим канал целиком
                     first_time = pd.to_datetime(new_pts[0][0])
                     second_time = pd.to_datetime(bar.name)
 
-                    # Сортируем по времени (всегда слева направо)
                     if first_time <= second_time:
                         t_start, p_start = first_time, new_pts[0][1]
                         t_end, p_end = second_time, y
@@ -96,15 +93,10 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
                         t_start, p_start = second_time, y
                         t_end, p_end = first_time, new_pts[0][1]
 
-                    # Определяем направление тренда
                     is_up = p_end > p_start
-
-                    # Берем данные за период
                     view_period = view.loc[t_start:t_end]
-                    if view_period.empty:
-                        return
+                    if view_period.empty: return
 
-                    # Находим 3-ю точку автоматически
                     if is_up:
                         y_start = float(view.loc[t_start, 'Low'])
                         y_end = float(view.loc[t_end, 'Low'])
@@ -116,7 +108,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
                         t_mid = view_period['Low'].idxmin()
                         y_mid = float(view_period.loc[t_mid, 'Low'])
 
-                    # Сохраняем 3 точки: A (левая), B (середина), C (правая)
                     new_pts = [
                         [str(t_start), y_start],
                         [str(t_mid), y_mid],
@@ -156,7 +147,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile)
     
-    # === БУФЕР ВРЕМЕНИ ДЛЯ ПРОДЛЕНИЯ ВПРАВО ===
     if tf_name == "D1":
         time_buffer = pd.Timedelta(days=10)
     elif tf_name == "H1":
@@ -189,12 +179,19 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
         if show_rr: charts.draw_rr_zones(fig, h1_zig, strategy)
         breakouts = analyze_manual_zigzag(h1_zig, view)
         charts.draw_breakouts(fig, breakouts, inst.decimals)
+        
         if breakouts:
             st.markdown("##### Анализ пробоев и откатов H1")
             df_metrics = pd.DataFrame([{
                 "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
-                "Δ Пробоя": b["delta"], "Бар/Vol": f"{b['bars']} / {b['volume']:,.0f}",
-                "Ретр. %": f"{b.get('retracement_pct', 0):.1f}%" if b["pullback_time"] else "-",
+                "Уровень B": b["resistance_price"],
+                "Пробой D-B": b["delta"],
+                "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b.get("breakout_verdict"), "-"),
+                "Откат E": b["e_price"] if b["has_pullback"] else "-",
+                "E vs B": b["e_vs_b"] if b["has_pullback"] else "-",
+                "Глубина %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
+                "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-",
+                "Срав. откатов": f"{b['retracement_ratio']:.2f}x" if b.get("retracement_ratio") else "-"
             } for b in breakouts])
             st.dataframe(df_metrics, use_container_width=True, hide_index=True)
 
