@@ -218,7 +218,7 @@ def build_export_cache() -> dict:
     """Собирает полный JSON-кэш из текущего st.session_state и файла."""
     cache = load_trend_cache()
 
-    # 1. Обновляем глобальные настройки из бокового меню
+    # 1. Глобальные настройки sidebar
     if "sb_strategy" in st.session_state:
         cache["_global"] = {
             "strategy": st.session_state.get("sb_strategy", "Зигзаг тенденции"),
@@ -230,26 +230,45 @@ def build_export_cache() -> dict:
             "mobile_view": st.session_state.get("sb_mobile", False),
         }
 
-    # 2. Обновляем данные для всех активных тикеров из session_state
+    # 2. Список активных вкладок и состояние главной таблицы
+    cache["_active_tickers"] = st.session_state.get("active_tickers", [])
+    cache["_market_state"] = st.session_state.get("market_state", {})
+
+    # 3. Данные по каждому активному тикеру
     active_tickers = st.session_state.get("active_tickers", [])
     for ticker in active_tickers:
         pts_keys = {
             "d1_manual_pts": f"manual_channel_{ticker}_D1",
-            "d1_fib_pts": f"manual_fib_{ticker}_D1",
-            "h1_tend_pts": f"manual_tend_{ticker}_H1",
-            "h1_fib_pts": f"manual_fib_{ticker}_H1",
-            "m10_zig_pts": f"manual_zig_{ticker}_M10",
-            "h1_levels": f"manual_levels_{ticker}_H1",
+            "d1_fib_pts":    f"manual_fib_{ticker}_D1",
+            "h1_tend_pts":   f"manual_tend_{ticker}_H1",
+            "h1_fib_pts":    f"manual_fib_{ticker}_H1",
+            "m10_zig_pts":   f"manual_zig_{ticker}_M10",
+            "h1_levels":     f"manual_levels_{ticker}_H1",
         }
 
         ticker_data = {}
         for cache_key, skey in pts_keys.items():
             if cache_key == "h1_levels":
-                # h1_levels — список dict'ов, не кортежей
                 ticker_data[cache_key] = st.session_state.get(skey, [])
             else:
                 pts = st.session_state.get(skey, [])
                 ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
+
+        # Точки входа
+        entries_key = f"deal_{ticker}_entries_raw"
+        if entries_key in st.session_state:
+            try:
+                df_entries = st.session_state[entries_key]
+                ticker_data["entries"] = df_entries.to_dict("records")
+            except Exception:
+                ticker_data["entries"] = []
+        else:
+            ticker_data["entries"] = []
+
+        # SL/TP/Направление
+        ticker_data["sl_price"] = st.session_state.get(f"deal_{ticker}_sl_price", None)
+        ticker_data["tp_price"] = st.session_state.get(f"deal_{ticker}_tp_price", None)
+        ticker_data["direction"] = st.session_state.get(f"deal_{ticker}_dir", None)
 
         cache[ticker] = ticker_data
 
