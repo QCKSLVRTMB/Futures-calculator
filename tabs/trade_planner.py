@@ -113,7 +113,7 @@ def get_sperandeo_geometry(df, trend_direction):
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
     if df_period.empty:
-        return 0, 0, start_time, resistance_price
+        return 0, 0, start_time
         
     if is_up:
         breakout_bars = df_period[df_period['High'] > resistance_price]
@@ -122,13 +122,11 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
         
     if not breakout_bars.empty:
         breakout_time = breakout_bars.index[0]
-        breakout_price = float(breakout_bars.iloc[0]['High'] if is_up else breakout_bars.iloc[0]['Low'])
     else:
         breakout_time = start_time
-        breakout_price = resistance_price
         
     df_active = df.loc[breakout_time:end_time]
-    return len(df_active), df_active['Volume'].sum(), breakout_time, breakout_price
+    return len(df_active), df_active['Volume'].sum(), breakout_time
 
 def analyze_manual_zigzag(pts, df):
     if len(pts) < 4:
@@ -143,7 +141,7 @@ def analyze_manual_zigzag(pts, df):
         d_time, d_price = p_d
         
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
-            bars, vol, brk_time, brk_price = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
+            bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             breakouts.append({
                 "trend": "up",
                 "resistance_time": b_time,
@@ -151,13 +149,12 @@ def analyze_manual_zigzag(pts, df):
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
-                "breakout_price": brk_price,
                 "delta": d_price - b_price,
                 "bars": bars,
                 "volume": vol
             })
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
-            bars, vol, brk_time, brk_price = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
+            bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             breakouts.append({
                 "trend": "down",
                 "resistance_time": b_time,
@@ -165,7 +162,6 @@ def analyze_manual_zigzag(pts, df):
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
-                "breakout_price": brk_price,
                 "delta": b_price - d_price,
                 "bars": bars,
                 "volume": vol
@@ -259,11 +255,11 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 row=1, col=1
             )
 
-            # Оранжевый пунктирный отрезок от сопротивления до момента пробоя
+            # СИНИЙ ГОРИЗОНТАЛЬНЫЙ ОТРЕЗОК: от сопротивления до бара, который пробил
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
-                x1=brk['breakout_time'], y1=brk['breakout_price'],
-                line=dict(color="orange", width=2, dash="dash"), 
+                x1=brk['breakout_time'], y1=brk['resistance_price'],
+                line=dict(color="blue", width=2), 
                 xref="x", yref="y", row=1, col=1
             )
 
