@@ -39,10 +39,9 @@ def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
             _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy)
 
 def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
-    # Распределение инструментов по ТФ (как в вашем коде)
     if tf_name == "D1": available_tools = ["channel", "fib_d1"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
-    else: available_tools = ["zigzag"]  # На M10 только зигзаг
+    else: available_tools = ["zigzag"]
     
     c1, c2 = st.columns([1, 1])
     with c1: tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS[x]) or available_tools[0]
@@ -64,7 +63,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
     chart_key = f"chart_{ticker}_{tf_name}"
     click = charts.capture_click(chart_key)
 
-    # Маппинг старых ключей стейта на новую структуру
     chart_data = tdata["charts"][tf_name]
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
@@ -81,7 +79,51 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
         max_pts = 3 if tool == "channel" else (None if "zigzag" in tool else 2)
         
         if max_pts is None or len(new_pts) < max_pts:
-            if "zigzag" in tool:
+            if tool == "channel":
+                if len(new_pts) == 0:
+                    # Клик 1: запоминаем координату клика
+                    new_pts.append([str(bar.name), y])
+                elif len(new_pts) == 1:
+                    # Клик 2: строим канал целиком
+                    first_time = pd.to_datetime(new_pts[0][0])
+                    second_time = pd.to_datetime(bar.name)
+
+                    # Сортируем по времени (всегда слева направо)
+                    if first_time <= second_time:
+                        t_start, p_start = first_time, new_pts[0][1]
+                        t_end, p_end = second_time, y
+                    else:
+                        t_start, p_start = second_time, y
+                        t_end, p_end = first_time, new_pts[0][1]
+
+                    # Определяем направление тренда
+                    is_up = p_end > p_start
+
+                    # Берем данные за период
+                    view_period = view.loc[t_start:t_end]
+                    if view_period.empty:
+                        return
+
+                    # Находим 3-ю точку автоматически
+                    if is_up:
+                        y_start = float(view.loc[t_start, 'Low'])
+                        y_end = float(view.loc[t_end, 'Low'])
+                        t_mid = view_period['High'].idxmax()
+                        y_mid = float(view_period.loc[t_mid, 'High'])
+                    else:
+                        y_start = float(view.loc[t_start, 'High'])
+                        y_end = float(view.loc[t_end, 'High'])
+                        t_mid = view_period['Low'].idxmin()
+                        y_mid = float(view_period.loc[t_mid, 'Low'])
+
+                    # Сохраняем 3 точки: A (левая), B (середина), C (правая)
+                    new_pts = [
+                        [str(t_start), y_start],
+                        [str(t_mid), y_mid],
+                        [str(t_end), y_end]
+                    ]
+                    
+            elif "zigzag" in tool:
                 if new_pts and pd.to_datetime(new_pts[-1][0]) == bar.name:
                     last_y = new_pts[-1][1]
                     new_pts[-1] = [str(bar.name), float(bar['Low']) if last_y == bar['High'] else float(bar['High'])]
@@ -97,30 +139,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
                     snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
                     new_pts.append([str(bar.name), snapped_y])
                     
-            elif tool == "channel":
-                if len(new_pts) == 0:
-                    # Клик 1: запоминаем координату клика, тип определится на клике 2
-                    new_pts.append([str(bar.name), y])
-                elif len(new_pts) == 1:
-                    # Клик 2: определяем направление по взаимному расположению кликов
-                    first_bar_name = pd.to_datetime(new_pts[0][0])
-                    if y > new_pts[0][1]:
-                        # Восходящий канал → обе точки LOW
-                        new_pts[0] = [new_pts[0][0], float(view.loc[first_bar_name, 'Low'])]
-                        new_pts.append([str(bar.name), float(bar['Low'])])
-                    else:
-                        # Нисходящий канал → обе точки HIGH
-                        new_pts[0] = [new_pts[0][0], float(view.loc[first_bar_name, 'High'])]
-                        new_pts.append([str(bar.name), float(bar['High'])])
-                elif len(new_pts) == 2:
-                    # Клик 3: противоположный экстремум
-                    if new_pts[1][1] > new_pts[0][1]:
-                        # Восходящий канал → точка 3 = HIGH
-                        new_pts.append([str(bar.name), float(bar['High'])])
-                    else:
-                        # Нисходящий канал → точка 3 = LOW
-                        new_pts.append([str(bar.name), float(bar['Low'])])
-                        
             else:  # fib
                 if len(new_pts) == 0: 
                     new_pts.append([str(bar.name), float(bar['High']) if abs(y-bar['High'])<abs(y-bar['Low']) else float(bar['Low'])])
@@ -139,7 +157,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile)
     x_left, x_right = view.index[0], view.index[-1]
 
-    # Отрисовка (используем все сохраненные данные, независимо от выбранного инструмента)
     d1_pts = tdata["charts"]["D1"]["channel"]
     d1_fib = tdata["charts"]["D1"]["fib"]
     h1_zig = tdata["charts"]["H1"]["zigzag"]
@@ -200,7 +217,6 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
     with c[2 % len(c)]:
         deal["tp"] = st.number_input("Тейк-профит", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
 
-    # Логика из вашего старого кода
     avg_entry = p_c
     sl_price = p_a if deal["direction"] == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
