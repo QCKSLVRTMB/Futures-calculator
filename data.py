@@ -6,10 +6,10 @@ from datetime import datetime, timedelta
 # ВАЖНО: Замените на ваш ID таблицы и GID вкладок!
 SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ_ИЗ_ССЫЛКИ"
 GIDS = {
-    "API": "0",
-    "MARKETDATA": "0",
-    "ГО": "0",
-    "Списки": "0",
+    "API": "0",         # Замените на реальный gid
+    "MARKETDATA": "0",  # Замените на реальный gid
+    "ГО": "0",          # Замените на реальный gid
+    "Списки": "0",      # Замените на реальный gid
 }
 
 MARGIN_COL_MAP = {
@@ -138,37 +138,60 @@ MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/secur
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.DataFrame:
+    """
+    Загружает реальные свечи с MOEX ISS с постраничной пагинацией.
+    MOEX ISS отдаёт максимум 500 свечей за запрос — при необходимости
+    делаем несколько запросов через параметр `start`.
+    """
     from_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-    params = {"interval": interval, "from": from_date, "iss.meta": "off"}
-    
-    try:
-        r = requests.get(MOEX_CANDLES_URL.format(ticker=ticker), params=params, timeout=15)
-        r.raise_for_status()
-        js = r.json()
-    except Exception:
+    till_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    all_chunks = []
+    start = 0
+    max_pages = 30  # защита от бесконечного цикла
+
+    for _ in range(max_pages):
+        params = {
+            "interval": interval,
+            "from": from_date,
+            "till": till_date,
+            "start": start,
+            "iss.meta": "off",
+        }
+        try:
+            r = requests.get(MOEX_CANDLES_URL.format(ticker=ticker), params=params, timeout=15)
+            r.raise_for_status()
+            js = r.json()
+        except Exception:
+            break
+
+        block = js.get("candles")
+        if not block or not block.get("data"):
+            break
+
+        chunk = pd.DataFrame(block["data"], columns=block["columns"])
+        all_chunks.append(chunk)
+
+        # Если получили < 500 — данных больше нет
+        if len(chunk) < 500:
+            break
+        start += 500
+
+    if not all_chunks:
         return pd.DataFrame()
 
-    block = js.get("candles")
-    if not block or not block.get("data"):
-        return pd.DataFrame()
+    df = pd.concat(all_chunks, ignore_index=True).drop_duplicates(subset=["begin"])
 
-    df = pd.DataFrame(block["data"], columns=block["columns"])
-    
-    # Проверка на наличие нужных колонок
     required = ["begin", "open", "high", "low", "close"]
     if not all(col in df.columns for col in required):
         return pd.DataFrame()
 
     df = df.rename(columns={"begin": "Date", "open": "Open", "high": "High",
                             "low": "Low", "close": "Close", "volume": "Volume"})
-    
-    # Если volume отсутствует, создаем нулевой
     if "Volume" not in df.columns:
         df["Volume"] = 0
 
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.set_index("Date").sort_index()
-    
-    # Очистка от NaN
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     return df
