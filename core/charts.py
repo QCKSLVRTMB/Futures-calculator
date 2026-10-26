@@ -56,10 +56,6 @@ def _shape(fig, **kwargs):
 
 # ============ ИНСТРУМЕНТЫ ============
 def draw_channel(fig, pts, x_right):
-    """
-    Рисует канал по 3 точкам: A (левая), B (средняя), C (правая).
-    Точки всегда идут в хронологическом порядке (слева направо).
-    """
     if len(pts) < 3: return
 
     t_a, y_a = pts[0][:2]
@@ -68,22 +64,18 @@ def draw_channel(fig, pts, x_right):
 
     x_a, x_c = _ts(t_a), _ts(t_c)
 
-    # Базовая линия (через A и C)
     dt = (x_c - x_a).total_seconds() or 1
     k = (y_c - y_a) / dt
 
-    # Продлеваем вправо
     y_c_ext = y_a + k * (_ts(x_right) - x_a).total_seconds()
 
     fig.add_shape(type="line", x0=x_a, y0=y_a, x1=x_right, y1=y_c_ext,
                   line=dict(color="blue", width=2), row=1, col=1)
 
-    # Параллельная линия (через B)
     off = y_b - (y_a + k * (_ts(t_b) - x_a).total_seconds())
     fig.add_shape(type="line", x0=x_a, y0=y_a + off, x1=x_right, y1=y_c_ext + off,
                   line=dict(color="blue", width=2), row=1, col=1)
 
-    # Заливка между линиями
     fig.add_trace(
         go.Scatter(x=[x_a, x_right, x_right, x_a],
                    y=[y_a, y_c_ext, y_c_ext + off, y_a + off],
@@ -92,7 +84,6 @@ def draw_channel(fig, pts, x_right):
         row=1, col=1
     )
 
-    # Маркеры A, B, C
     fig.add_trace(go.Scatter(
         x=[x_a, _ts(t_b), x_c], 
         y=[y_a, y_b, y_c], 
@@ -167,13 +158,10 @@ def draw_breakouts(fig, breakouts, decimals):
     drawn_coords = set()
     for brk in breakouts:
         line_color_breakout = "#0d6efd" if brk["trend"] == "up" else "#dc3545"
-        line_color_pullback = "#fd7e14"
         breakout_bg = "rgba(13, 110, 253, 0.9)" if brk["trend"] == "up" else "rgba(220, 53, 69, 0.9)"
-        pullback_bg = "rgba(253, 126, 20, 0.9)"
-
+        
+        # --- Пробой (Точка D) ---
         b_text = f"Δ: {brk['delta']:.{decimals}f}<br>Бар: {brk['bars']}<br>Vol: {brk['volume']:,.0f}"
-        p_text = f"Δ: {brk['retr_delta']:.{decimals}f}<br>Бар: {brk['retr_bars']}<br>Vol: {brk['retr_volume']:,.0f}"
-
         if (brk['peak_time'], brk['peak_price']) not in drawn_coords:
             fig.add_annotation(x=brk['peak_time'], y=brk['peak_price'], text=b_text,
                                showarrow=True, arrowhead=2, ax=40, ay=-40,
@@ -197,19 +185,36 @@ def draw_breakouts(fig, breakouts, decimals):
                            showarrow=False, xanchor="right", xshift=-5,
                            font=dict(color=line_color_breakout, size=11, weight="bold"), row=1, col=1)
 
-        if brk.get('pullback_time') is not None:
-            if (brk['pullback_time'], brk['pullback_price']) not in drawn_coords:
-                fig.add_annotation(x=brk['pullback_time'], y=brk['pullback_price'], text=p_text,
+        # --- Откат (Точка E) ---
+        if brk.get('has_pullback') and brk.get('e_time') is not None:
+            p_verdict = brk['pullback_verdict']
+            if p_verdict == "strong": pullback_bg = "rgba(25, 135, 84, 0.9)"
+            elif p_verdict == "weak": pullback_bg = "rgba(220, 53, 69, 0.9)"
+            else: pullback_bg = "rgba(253, 126, 20, 0.9)"
+
+            p_verdict_map = {"strong": "СИЛЬНЫЙ", "weak": "СЛАБЫЙ", "normal": "НОРМАЛЬНЫЙ"}
+            p_v_text = p_verdict_map.get(p_verdict, "")
+
+            pullback_text = f"Откат (E): {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} B<br>Оценка: <b>{p_v_text}</b>"
+            if (brk['e_time'], brk['e_price']) not in drawn_coords:
+                fig.add_annotation(x=brk['e_time'], y=brk['e_price'], text=pullback_text,
                                    showarrow=True, arrowhead=2, ax=0, ay=40,
                                    bgcolor=pullback_bg, font=dict(color="white", size=10),
                                    bordercolor="black", row=1, col=1)
-                drawn_coords.add((brk['pullback_time'], brk['pullback_price']))
-            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['resistance_price'],
-                          x1=brk['breakout_time'], y1=brk['pullback_price'],
-                          line=dict(color=line_color_pullback, width=2, dash="dot"), row=1, col=1)
-            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['pullback_price'],
-                          x1=brk['pullback_time'], y1=brk['pullback_price'],
-                          line=dict(color=line_color_pullback, width=2), row=1, col=1)
+                drawn_coords.add((brk['e_time'], brk['e_price']))
+
+            fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['peak_price'],
+                          x1=brk['peak_time'], y1=brk['e_price'],
+                          line=dict(color="#fd7e14", width=2, dash="dot"), row=1, col=1)
+            fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['e_price'],
+                          x1=brk['e_time'], y1=brk['e_price'],
+                          line=dict(color="#fd7e14", width=2), row=1, col=1)
+
+            mid_y_p = brk['e_price'] + (brk['peak_price'] - brk['e_price']) / 2
+            fig.add_annotation(x=brk['peak_time'], y=mid_y_p,
+                               text=f"{brk['retracement_pct']:.1f}%",
+                               showarrow=False, xanchor="right", xshift=-5,
+                               font=dict(color="#fd7e14", size=11, weight="bold"), row=1, col=1)
 
 
 def draw_deal(fig, plan, x_left, x_right):
@@ -272,7 +277,6 @@ def build_figure(df, *, tf_name, title, decimals, mobile):
     if tf_name != "D1":
         breaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    # === БУФЕР ВРЕМЕНИ ДЛЯ ПРОДЛЕНИЯ ВПРАВО ===
     if tf_name == "D1":
         time_buffer = pd.Timedelta(days=10)
     elif tf_name == "H1":
@@ -304,7 +308,6 @@ PLOT_CONFIG = {
 
 
 def capture_click(chart_key: str) -> tuple[str, float] | None:
-    """Перехватывает клик по графику (защита от дублей)."""
     ev = st.session_state.get(chart_key)
     if not isinstance(ev, dict): return None
     pts = (ev.get("selection") or {}).get("points") or []
