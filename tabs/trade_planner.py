@@ -255,12 +255,40 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 row=1, col=1
             )
 
-            # СИНИЙ ГОРИЗОНТАЛЬНЫЙ ОТРЕЗОК: от сопротивления до бара, который пробил
+            # 1. СИНИЙ ГОРИЗОНТАЛЬНЫЙ ОТРЕЗОК (от сопротивления до бара пробоя)
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['resistance_price'],
                 line=dict(color="blue", width=2), 
                 xref="x", yref="y", row=1, col=1
+            )
+
+            # 2. СИНЯЯ ВЕРТИКАЛЬНАЯ ЛИНИЯ (от бара пробоя до уровня пика)
+            fig.add_shape(
+                type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
+                x1=brk['breakout_time'], y1=brk['peak_price'],
+                line=dict(color="blue", width=2, dash="dot"), 
+                xref="x", yref="y", row=1, col=1
+            )
+
+            # 3. СОЕДИНИТЕЛЬНАЯ ЛИНИЯ (от вершины вертикали к точке пика)
+            fig.add_shape(
+                type="line", x0=brk['breakout_time'], y0=brk['peak_price'], 
+                x1=brk['peak_time'], y1=brk['peak_price'],
+                line=dict(color="blue", width=2, dash="dot"), 
+                xref="x", yref="y", row=1, col=1
+            )
+
+            # 4. ТЕКСТ Δ СЛЕВА ОТ ВЕРТИКАЛЬНОЙ ЛИНИИ
+            mid_y = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
+            fig.add_annotation(
+                x=brk['breakout_time'], y=mid_y,
+                text=f"Δ: {brk['delta']:.{decimals}f}",
+                showarrow=False,
+                xanchor="right",
+                xshift=-5,
+                font=dict(color="blue", size=11, weight="bold"),
+                row=1, col=1
             )
 
     if 'Volume' in df_chart.columns:
