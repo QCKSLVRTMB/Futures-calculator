@@ -180,7 +180,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1 (строго по кликам 1-2-3: A -> C -> B)
     if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]
         t2, p2 = d1_pts[1]
@@ -217,7 +216,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
         
-        # Сортируем только для отображения подписей, чтобы A, C, B шли слева направо
         plot_points = sorted([(t1, p1, "A"), (t2, p2, "C"), (t3, p3, "B")], key=lambda x: x[0])
         px = [pt[0] for pt in plot_points]
         py = [pt[1] for pt in plot_points]
@@ -563,6 +561,189 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     
     return fig, breakouts
 
+@st.fragment
+def _render_chart_fragment(ticker, tf_name, cfg, decimals, strategy, active_tool, active_k, max_pts, show_tools, show_rr, key, pts_keys):
+    d1_pts = st.session_state.get(pts_keys["d1_chan"], [])
+    d1_fib = st.session_state.get(pts_keys["d1_fib"], [])
+    h1_pts = st.session_state.get(pts_keys["h1_tend"], [])
+    h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
+    m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
+    
+    zoom_start = None
+    if tf_name == "H1" and len(d1_pts) == 3:
+        zoom_start = d1_pts[1][0]
+    elif tf_name == "M10" and len(h1_pts) >= 4:
+        zoom_start = h1_pts[-4][0]
+
+    df_candles = fetch_moex_candles(ticker, interval=cfg["interval"], days_back=cfg["days_back"])
+    if df_candles.empty:
+        st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
+        return
+
+    last_ts = df_candles.index[-1]
+    st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
+
+    try:
+        is_d1 = (tf_name == "D1")
+        is_h1 = (tf_name == "H1")
+        is_m10 = (tf_name == "M10")
+        
+        if not show_tools:
+            d1_pts_view = None
+            d1_fib_view = None
+            h1_tend_view = None
+            h1_fib_view = None
+            m10_zig_view = None
+        else:
+            d1_pts_view = d1_pts
+            d1_fib_view = d1_fib
+            h1_tend_view = h1_pts
+            h1_fib_view = h1_fib
+            m10_zig_view = m10_zig
+
+        fig, breakouts = draw_chart(
+            df_candles,
+            title=f"{ticker} — {tf_name}",
+            is_intraday=cfg["is_intraday"],
+            decimals=decimals,
+            is_h1=is_h1,
+            is_m10=is_m10,
+            is_d1=is_d1,
+            ticker=ticker,
+            d1_pts=d1_pts_view,
+            d1_fib_pts=d1_fib_view,
+            h1_tend_pts=h1_tend_view,
+            h1_fib_pts=h1_fib_view,
+            m10_zig_pts=m10_zig_view,
+            strategy=strategy,
+            zoom_start_time=zoom_start,
+            show_rr=show_rr
+        )
+        
+        if fig:
+            if active_k and show_tools:
+                event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_{tf_name}")
+                
+                now = time.time()
+                active_deb = f"debounce_{active_k}_{ticker}"
+                if active_deb not in st.session_state:
+                    st.session_state[active_deb] = 0.0
+                last_debounce = st.session_state[active_deb]
+                
+                if event and event["selection"]["points"] and (now - last_debounce > 0.5):
+                    st.session_state[active_deb] = now
+                    
+                    pt = event["selection"]["points"][0]
+                    clicked_time = pd.to_datetime(pt["x"])
+                    clicked_y = pt["y"]
+                    
+                    df_view = df_candles.copy()
+                    idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
+                    
+                    active_skey = pts_keys[active_k]
+                    pts = st.session_state.get(active_skey, [])
+                    if not isinstance(pts, list): pts = []
+                    new_pts = pts.copy()
+                    
+                    window = 5
+                    start_idx = max(0, idx - window)
+                    end_idx = min(len(df_view) - 1, idx + window)
+                    window_df = df_view.iloc[start_idx:end_idx + 1]
+                    bar = df_view.iloc[idx]
+                    
+                    if max_pts is None or len(new_pts) < max_pts:
+                        if active_k in ["h1_tend", "m10_zig"]:
+                            if new_pts and new_pts[-1][0] == bar.name:
+                                last_y = new_pts[-1][1]
+                                snapped_y = float(bar['Low']) if np.isclose(last_y, bar['High']) else float(bar['High'])
+                                new_pts[-1] = (bar.name, snapped_y)
+                            elif not new_pts:
+                                is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                                ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
+                                new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
+                            elif len(new_pts) == 1:
+                                snapped_y = float(bar['High']) if clicked_y > new_pts[0][1] else float(bar['Low'])
+                                new_pts.append((bar.name, snapped_y))
+                            else:
+                                last_time, last_y = new_pts[-1]
+                                is_last_high = np.isclose(last_y, df_view.loc[last_time, 'High'])
+                                snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
+                                new_pts.append((bar.name, snapped_y))
+                        
+                        elif active_k == "d1_chan":
+                            if len(new_pts) == 0:
+                                is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                                ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
+                                new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
+                            elif len(new_pts) == 1:
+                                first_is_low = abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'Low']) < abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'High'])
+                                ext_idx = window_df['Low'].idxmin() if first_is_low else window_df['High'].idxmax()
+                                new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if first_is_low else 'High'])))
+                            elif len(new_pts) == 2:
+                                first_is_low = abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'Low']) < abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'High'])
+                                is_low_B = not first_is_low
+                                ext_idx = window_df['Low'].idxmin() if is_low_B else window_df['High'].idxmax()
+                                new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low_B else 'High'])))
+                        
+                        elif active_k in ["d1_fib", "h1_fib"]:
+                            if len(new_pts) == 0:
+                                is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                                ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
+                                new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
+                            elif len(new_pts) == 1:
+                                if clicked_y > new_pts[0][1]:
+                                    new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
+                                    snapped_y = float(bar['High'])
+                                else:
+                                    new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'High']))
+                                    snapped_y = float(bar['Low'])
+                                new_pts.append((bar.name, snapped_y))
+
+                        if new_pts != pts:
+                            active_undo = f"undo_{active_k}_{ticker}"
+                            active_redo = f"redo_{active_k}_{ticker}"
+                            if active_undo not in st.session_state: st.session_state[active_undo] = []
+                            if active_redo not in st.session_state: st.session_state[active_redo] = []
+                            
+                            st.session_state[active_undo].append(pts.copy())
+                            st.session_state[active_redo] = []
+                            st.session_state[active_skey] = new_pts
+                            st.rerun()
+            else:
+                st.plotly_chart(fig, use_container_width=True)
+                    
+            if is_h1 and breakouts and show_tools:
+                st.markdown("---")
+                st.markdown("#### Анализ пробоев и откатов H1")
+                
+                df_metrics = pd.DataFrame([
+                    {
+                        "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
+                        "Уровень сопр.": b["resistance_price"],
+                        "Пик (D)": b["peak_price"],
+                        "Δ Пробоя": b["breakout_magnitude"],
+                        "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b["breakout_verdict"], "-"),
+                        "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-",
+                        "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
+                        "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b["pullback_verdict"], "-") if b["has_pullback"] else "-"
+                    }
+                    for b in breakouts
+                ])
+                
+                st.dataframe(
+                    df_metrics, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                        "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                        "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                        "Откат (E)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                    }
+                )
+    except Exception as e:
+        st.error(f"Не удалось отрисовать график {tf_name}: {e}")
+
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_pct=None, rr_ratio, commission, strategy):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
@@ -697,38 +878,36 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
 
             if active_k and show_tools:
                 max_pts = 3 if active_k == "d1_chan" else (2 if "fib" in active_k else None)
-                active_skey = pts_keys[active_k]
                 active_undo = f"undo_{active_k}_{ticker}"
                 active_redo = f"redo_{active_k}_{ticker}"
-                active_deb = f"debounce_{active_k}_{ticker}"
 
                 col1, col2, col3 = st.columns([1, 1, 1])
                 with col1:
                     if st.button("Отменить", key=f"undo_btn_{active_k}_{ticker}"):
                         if len(st.session_state[active_undo]) > 0:
                             prev = st.session_state[active_undo].pop()
-                            st.session_state[active_redo].append(st.session_state[active_skey].copy())
-                            st.session_state[active_skey] = prev
-                            st.session_state[active_deb] = 0.0
+                            st.session_state[active_redo].append(st.session_state[pts_keys[active_k]].copy())
+                            st.session_state[pts_keys[active_k]] = prev
+                            st.session_state[f"debounce_{active_k}_{ticker}"] = 0.0
                             st.rerun()
                 with col2:
                     if st.button("Повторить", key=f"redo_btn_{active_k}_{ticker}"):
                         if len(st.session_state[active_redo]) > 0:
                             nxt = st.session_state[active_redo].pop()
-                            st.session_state[active_undo].append(st.session_state[active_skey].copy())
-                            st.session_state[active_skey] = nxt
-                            st.session_state[active_deb] = 0.0
+                            st.session_state[active_undo].append(st.session_state[pts_keys[active_k]].copy())
+                            st.session_state[pts_keys[active_k]] = nxt
+                            st.session_state[f"debounce_{active_k}_{ticker}"] = 0.0
                             st.rerun()
                 with col3:
                     if st.button("Очистить", key=f"clear_btn_{active_k}_{ticker}"):
-                        st.session_state[active_undo].append(st.session_state[active_skey].copy())
+                        st.session_state[active_undo].append(st.session_state[pts_keys[active_k]].copy())
                         st.session_state[active_redo] = []
-                        st.session_state[active_skey] = []
-                        st.session_state[active_deb] = 0.0
+                        st.session_state[pts_keys[active_k]] = []
+                        st.session_state[f"debounce_{active_k}_{ticker}"] = 0.0
                         st.rerun()
 
                 if active_k == "d1_chan":
-                    pts_now = st.session_state.get(active_skey, [])
+                    pts_now = st.session_state.get(pts_keys[active_k], [])
                     if not isinstance(pts_now, list): pts_now = []
                     if len(pts_now) == 0:
                         st.caption("🖱️ **Точка A (1/3)**: кликните на первом минимуме (для восходящего) или максимуме (для нисходящего).")
@@ -737,178 +916,12 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                     elif len(pts_now) == 2:
                         st.caption("🖱️ **Точка B (3/3)**: кликните на противоположном экстремуме (максимум для восходящего, минимум для нисходящего).")
 
-            df_candles = fetch_moex_candles(
-                ticker,
-                interval=cfg["interval"],
-                days_back=cfg["days_back"],
+            _render_chart_fragment(
+                ticker=ticker, tf_name=tf_name, cfg=cfg, decimals=decimals, 
+                strategy=strategy, active_tool=active_tool, active_k=active_k, 
+                max_pts=max_pts if active_k and show_tools else None, 
+                show_tools=show_tools, show_rr=show_rr, key=key, pts_keys=pts_keys
             )
-            if df_candles.empty:
-                st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
-                continue
-
-            zoom_start = None
-            if tf_name == "H1" and len(d1_pts) == 3:
-                zoom_start = d1_pts[1][0]
-            elif tf_name == "M10" and len(h1_pts) >= 4:
-                zoom_start = h1_pts[-4][0]
-
-            last_ts = df_candles.index[-1]
-            st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
-
-            try:
-                d1_fib = st.session_state.get(pts_keys["d1_fib"], [])
-                h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
-                m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
-                
-                if not show_tools:
-                    d1_pts_view = None
-                    d1_fib_view = None
-                    h1_tend_view = None
-                    h1_fib_view = None
-                    m10_zig_view = None
-                else:
-                    d1_pts_view = d1_pts
-                    d1_fib_view = d1_fib
-                    h1_tend_view = h1_pts
-                    h1_fib_view = h1_fib
-                    m10_zig_view = m10_zig
-
-                fig, breakouts = draw_chart(
-                    df_candles,
-                    title=f"{ticker} — {tf_name}",
-                    is_intraday=cfg["is_intraday"],
-                    decimals=decimals,
-                    is_h1=is_h1,
-                    is_m10=is_m10,
-                    is_d1=is_d1,
-                    ticker=ticker,
-                    d1_pts=d1_pts_view,
-                    d1_fib_pts=d1_fib_view,
-                    h1_tend_pts=h1_tend_view,
-                    h1_fib_pts=h1_fib_view,
-                    m10_zig_pts=m10_zig_view,
-                    strategy=strategy,
-                    zoom_start_time=zoom_start,
-                    show_rr=show_rr
-                )
-                
-                if fig:
-                    if active_k and show_tools:
-                        event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_{tf_name}")
-                        
-                        now = time.time()
-                        last_debounce = st.session_state.get(active_deb, 0.0)
-                        
-                        if event and event["selection"]["points"] and (now - last_debounce > 0.5):
-                            st.session_state[active_deb] = now
-                            
-                            pt = event["selection"]["points"][0]
-                            clicked_time = pd.to_datetime(pt["x"])
-                            clicked_y = pt["y"]
-                            
-                            df_view = df_candles.copy()
-                            idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
-                            
-                            pts = st.session_state[active_skey]
-                            new_pts = pts.copy()
-                            
-                            # === МАГНИТ К ЭКСТРЕМУМАМ ===
-                            window = 5
-                            start_idx = max(0, idx - window)
-                            end_idx = min(len(df_view) - 1, idx + window)
-                            window_df = df_view.iloc[start_idx:end_idx + 1]
-                            bar = df_view.iloc[idx]
-                            
-                            if max_pts is None or len(new_pts) < max_pts:
-                                if active_k in ["h1_tend", "m10_zig"]:
-                                    if new_pts and new_pts[-1][0] == bar.name:
-                                        last_y = new_pts[-1][1]
-                                        snapped_y = float(bar['Low']) if np.isclose(last_y, bar['High']) else float(bar['High'])
-                                        new_pts[-1] = (bar.name, snapped_y)
-                                    elif not new_pts:
-                                        is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
-                                        ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
-                                        new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
-                                    elif len(new_pts) == 1:
-                                        snapped_y = float(bar['High']) if clicked_y > new_pts[0][1] else float(bar['Low'])
-                                        new_pts.append((bar.name, snapped_y))
-                                    else:
-                                        last_time, last_y = new_pts[-1]
-                                        is_last_high = np.isclose(last_y, df_view.loc[last_time, 'High'])
-                                        snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
-                                        new_pts.append((bar.name, snapped_y))
-                                
-                                elif active_k == "d1_chan":
-                                    if len(new_pts) == 0:
-                                        # Определяем тип первой точки (A)
-                                        is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
-                                        ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
-                                        new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
-                                    elif len(new_pts) == 1:
-                                        # Точка C: берем тип как у первой точки
-                                        first_is_low = abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'Low']) < abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'High'])
-                                        ext_idx = window_df['Low'].idxmin() if first_is_low else window_df['High'].idxmax()
-                                        new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if first_is_low else 'High'])))
-                                    elif len(new_pts) == 2:
-                                        # Точка B: противоположный тип
-                                        first_is_low = abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'Low']) < abs(new_pts[0][1] - df_view.loc[new_pts[0][0], 'High'])
-                                        is_low_B = not first_is_low
-                                        ext_idx = window_df['Low'].idxmin() if is_low_B else window_df['High'].idxmax()
-                                        new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low_B else 'High'])))
-                                
-                                elif active_k in ["d1_fib", "h1_fib"]:
-                                    if len(new_pts) == 0:
-                                        is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
-                                        ext_idx = window_df['Low'].idxmin() if is_low else window_df['High'].idxmax()
-                                        new_pts.append((ext_idx, float(window_df.loc[ext_idx, 'Low' if is_low else 'High'])))
-                                    elif len(new_pts) == 1:
-                                        if clicked_y > new_pts[0][1]:
-                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
-                                            snapped_y = float(bar['High'])
-                                        else:
-                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'High']))
-                                            snapped_y = float(bar['Low'])
-                                        new_pts.append((bar.name, snapped_y))
-
-                                if new_pts != pts:
-                                    st.session_state[active_undo].append(pts.copy())
-                                    st.session_state[active_redo] = []
-                                    st.session_state[active_skey] = new_pts
-                                    st.rerun()
-                    else:
-                        st.plotly_chart(fig, use_container_width=True)
-                            
-                    if is_h1 and breakouts and show_tools:
-                        st.markdown("---")
-                        st.markdown("#### Анализ пробоев и откатов H1")
-                        
-                        df_metrics = pd.DataFrame([
-                            {
-                                "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
-                                "Уровень сопр.": b["resistance_price"],
-                                "Пик (D)": b["peak_price"],
-                                "Δ Пробоя": b["breakout_magnitude"],
-                                "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b["breakout_verdict"], "-"),
-                                "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-",
-                                "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                                "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b["pullback_verdict"], "-") if b["has_pullback"] else "-"
-                            }
-                            for b in breakouts
-                        ])
-                        
-                        st.dataframe(
-                            df_metrics, 
-                            use_container_width=True, 
-                            hide_index=True,
-                            column_config={
-                                "Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Откат (E)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                            }
-                        )
-            except Exception as e:
-                st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
     final_state = {
         "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
