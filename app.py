@@ -1,7 +1,9 @@
 import streamlit as st
+from datetime import datetime
 from data import (
     load_api, load_go, load_marketdata, fetch_moex_forts,
-    export_cache_to_string, import_cache_from_string
+    export_cache_to_string, import_cache_from_string,
+    load_trend_cache, save_trend_cache
 )
 from tabs.main_table import render_main_tab
 from tabs.screener import render_screener
@@ -10,17 +12,40 @@ from tabs.trade_planner import render_trade_planner
 st.set_page_config(page_title="Калькулятор фьючерсов", page_icon="📈", layout="wide")
 
 try:
+    # Загружаем глобальные настройки из JSON
+    cache = load_trend_cache()
+    global_settings = cache.get("_global", {})
+
+    # Инициализация стейта бокового меню (чтобы импорт JSON корректно обновлял поля)
+    if "sb_comm" not in st.session_state:
+        st.session_state["sb_comm"] = global_settings.get("commission", "Т-Инвестиции")
+    if "sb_deposit" not in st.session_state:
+        st.session_state["sb_deposit"] = global_settings.get("deposit", 75000)
+    if "sb_margin" not in st.session_state:
+        st.session_state["sb_margin"] = global_settings.get("margin_type", "КСУР")
+    if "sb_rr" not in st.session_state:
+        st.session_state["sb_rr"] = global_settings.get("rr_ratio", 3.0)
+
     with st.sidebar:
         st.header("Параметры")
+        
+        commission = st.selectbox(
+            "Комиссия", 
+            ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], 
+            key="sb_comm"
+        )
+        
         deposit = st.number_input(
-            "Депозит, ₽", min_value=1_000, value=75_000, step=1_000, key="deposit"
+            "Депозит, ₽", min_value=1_000, step=1_000, key="sb_deposit"
         )
+        
         margin_type = st.selectbox(
-            "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"],
-            key="margin_type",
+            "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"], 
+            key="sb_margin"
         )
+        
         rr_ratio = st.number_input(
-            "Risk Reward (1 к ...)", min_value=1.0, value=3.0, step=0.5, key="global_rr",
+            "Risk Reward (1 к ...)", min_value=1.0, step=0.5, key="sb_rr",
             help="Глобальное соотношение риска к прибыли для всех калькуляторов"
         )
         
@@ -31,7 +56,6 @@ try:
         st.markdown("---")
         st.header("Управление настройками")
         
-        from datetime import datetime
         cache_str = export_cache_to_string()
         filename = datetime.now().strftime('%d.%m.%y.%H-%M') + ".futures"
         
@@ -49,12 +73,23 @@ try:
                 string_data = uploaded_file.getvalue().decode("utf-8")
                 if import_cache_from_string(string_data):
                     st.success("Настройки успешно загружены!")
+                    # Очищаем стейт, чтобы подтянулись новые значения
                     for k in list(st.session_state.keys()):
-                        if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_"):
+                        if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_") or k.startswith("sb_"):
                             del st.session_state[k]
                     st.rerun()
                 else:
                     st.error("Ошибка: неверный формат файла.")
+
+    # Сохраняем глобальные настройки в JSON, если они изменились
+    new_global_settings = {
+        "commission": commission,
+        "deposit": deposit,
+        "margin_type": margin_type,
+        "rr_ratio": rr_ratio
+    }
+    if new_global_settings != global_settings:
+        save_trend_cache("_global", new_global_settings)
 
     with st.spinner("Загрузка данных с MOEX ISS..."):
         iss_df = fetch_moex_forts()
@@ -88,6 +123,7 @@ try:
                 iss_df=iss_df,
                 deposit=deposit,
                 rr_ratio=rr_ratio,
+                commission=commission,
             )
 
 except Exception as e:
