@@ -95,11 +95,26 @@ def analyze_manual_zigzag(pts, df):
             
     return breakouts
 
-def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None, strategy="Зигзаг тенденции"):
+def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None):
     if df_chart.empty:
         return None, []
 
-    df_chart = df_chart.tail(150).copy()
+    # --- УМНЫЙ ЗУМ ---
+    if zoom_start_time is not None:
+        try:
+            z_time = pd.to_datetime(zoom_start_time)
+            # Оставляем бары начиная с нужного времени
+            filtered_df = df_chart.loc[z_time:]
+            # Если баров слишком мало (например, точка была на выходных), берем стандартные 150
+            if len(filtered_df) < 10:
+                df_chart = df_chart.tail(150).copy()
+            else:
+                df_chart = filtered_df.copy()
+        except Exception:
+            df_chart = df_chart.tail(150).copy()
+    else:
+        df_chart = df_chart.tail(150).copy()
+
     tick_fmt = f".{decimals}f"
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -235,14 +250,12 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     color_bottom = "rgba(255, 0, 0, 0.1)"  # Красный
                     color_top = "rgba(0, 128, 0, 0.1)"     # Зеленый
 
-                # Нижняя треть
                 fig.add_shape(
                     type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
                     fillcolor=color_bottom, line=dict(width=0),
                     layer="below", xref="x", yref="y", row=1, col=1
                 )
                 
-                # Верхняя треть
                 fig.add_shape(
                     type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end,
                     fillcolor=color_top, line=dict(width=0),
@@ -513,6 +526,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         if deb_k not in st.session_state: st.session_state[deb_k] = 0.0
 
     h1_pts = st.session_state.get(pts_keys["h1_zig"], [])
+    d1_pts = st.session_state.get(pts_keys["d1_chan"], [])
+
     p_a, p_b, p_c, p_d = None, None, None, None
     if len(h1_pts) >= 4:
         p_a = h1_pts[-4][1]
@@ -595,6 +610,13 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
                 continue
 
+            # --- ЛОГИКА УМНОГО ЗУМА ---
+            zoom_start = None
+            if tf_name == "H1" and len(d1_pts) == 3:
+                zoom_start = d1_pts[1][0]  # Вторая точка канала D1
+            elif tf_name == "M10" and len(h1_pts) >= 4:
+                zoom_start = h1_pts[-4][0] # Первая точка из последних 4-х
+
             last_ts = df_candles.index[-1]
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
@@ -603,7 +625,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 is_h1 = (tf_name == "H1")
                 is_m10 = (tf_name == "M10")
                 
-                d1_pts = st.session_state.get(pts_keys["d1_chan"], [])
                 d1_fib = st.session_state.get(pts_keys["d1_fib"], [])
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
                 
@@ -619,7 +640,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     d1_pts=d1_pts,
                     d1_fib_pts=d1_fib,
                     h1_fib_pts=h1_fib,
-                    strategy=strategy
+                    strategy=strategy,
+                    zoom_start_time=zoom_start
                 )
                 
                 if fig:
@@ -636,7 +658,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             clicked_time = pd.to_datetime(pt["x"])
                             clicked_y = pt["y"]
                             
-                            df_view = df_candles.tail(150).copy()
+                            df_view = df_candles.tail(150).copy() # Для кликов всегда берем последние 150 для точности
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             bar = df_view.iloc[idx]
                             
