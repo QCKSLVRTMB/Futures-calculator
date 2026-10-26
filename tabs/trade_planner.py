@@ -42,7 +42,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
     # Распределение инструментов по ТФ (как в вашем коде)
     if tf_name == "D1": available_tools = ["channel", "fib_d1"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
-    else: available_tools = ["zigzag"] # На M10 только зигзаг
+    else: available_tools = ["zigzag"]  # На M10 только зигзаг
     
     c1, c2 = st.columns([1, 1])
     with c1: tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS[x]) or available_tools[0]
@@ -75,7 +75,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
     if click:
         x, y = click
         y = inst.round_price(y)
-        bar = view.loc[pd.to_datetime(x).normalize()] if False else view.iloc[view.index.get_indexer([pd.to_datetime(x)], method='nearest')[0]]
+        bar = view.iloc[view.index.get_indexer([pd.to_datetime(x)], method='nearest')[0]]
         
         new_pts = pts.copy()
         max_pts = 3 if tool == "channel" else (None if "zigzag" in tool else 2)
@@ -96,19 +96,34 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
                     is_last_high = new_pts[-1][1] == view.loc[pd.to_datetime(new_pts[-1][0]), 'High']
                     snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
                     new_pts.append([str(bar.name), snapped_y])
+                    
             elif tool == "channel":
-                if len(new_pts) == 0: new_pts.append([str(bar.name), float(bar['High']) if abs(y-bar['High'])<abs(y-bar['Low']) else float(bar['Low'])])
+                if len(new_pts) == 0:
+                    # Клик 1: запоминаем координату клика, тип определится на клике 2
+                    new_pts.append([str(bar.name), y])
                 elif len(new_pts) == 1:
+                    # Клик 2: определяем направление по взаимному расположению кликов
+                    first_bar_name = pd.to_datetime(new_pts[0][0])
                     if y > new_pts[0][1]:
-                        new_pts[0] = [new_pts[0][0], float(view.loc[pd.to_datetime(new_pts[0][0]), 'Low'])]
+                        # Восходящий канал → обе точки LOW
+                        new_pts[0] = [new_pts[0][0], float(view.loc[first_bar_name, 'Low'])]
                         new_pts.append([str(bar.name), float(bar['Low'])])
                     else:
-                        new_pts[0] = [new_pts[0][0], float(view.loc[pd.to_datetime(new_pts[0][0]), 'High'])]
+                        # Нисходящий канал → обе точки HIGH
+                        new_pts[0] = [new_pts[0][0], float(view.loc[first_bar_name, 'High'])]
                         new_pts.append([str(bar.name), float(bar['High'])])
                 elif len(new_pts) == 2:
-                    new_pts.append([str(bar.name), float(bar['High']) if new_pts[1][1] > new_pts[0][1] else float(bar['Low'])])
-            else: # fib
-                if len(new_pts) == 0: new_pts.append([str(bar.name), float(bar['High']) if abs(y-bar['High'])<abs(y-bar['Low']) else float(bar['Low'])])
+                    # Клик 3: противоположный экстремум
+                    if new_pts[1][1] > new_pts[0][1]:
+                        # Восходящий канал → точка 3 = HIGH
+                        new_pts.append([str(bar.name), float(bar['High'])])
+                    else:
+                        # Нисходящий канал → точка 3 = LOW
+                        new_pts.append([str(bar.name), float(bar['Low'])])
+                        
+            else:  # fib
+                if len(new_pts) == 0: 
+                    new_pts.append([str(bar.name), float(bar['High']) if abs(y-bar['High'])<abs(y-bar['Low']) else float(bar['Low'])])
                 elif len(new_pts) == 1:
                     if y > new_pts[0][1]:
                         new_pts[0] = [new_pts[0][0], float(view.loc[pd.to_datetime(new_pts[0][0]), 'Low'])]
