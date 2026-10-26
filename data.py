@@ -73,11 +73,21 @@ MOEX_URL = (
 )
 
 SEC_COLS = {
-    "SECID": ["SECID"], "SHORTNAME": ["SHORTNAME"], "ASSETCODE": ["ASSETCODE"],
-    "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
-    "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
-    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], 
-    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"],
+    "SECID": ["SECID"],
+    "SHORTNAME": ["SHORTNAME"],
+    "ASSETCODE": ["ASSETCODE"],
+    "GROUP": ["GROUP"],
+    "SECTYPE": ["SECTYPE"],
+    "DELIVERYTYPE": ["DELIVERYTYPE"],
+    "LOTSIZE": ["LOTSIZE"],
+    "MINSTEP": ["MINSTEP"],
+    "STEPPRICE": ["STEPPRICE"],
+    "LASTTRADEDATE": ["LASTTRADEDATE"],
+    "INITIALMARGIN": ["INITIALMARGIN"],
+    "PREVPRICE": ["PREVPRICE"],
+    "PREVSETTLEPRICE": ["PREVSETTLEPRICE"],
+    "BUYSELLFEE": ["BUYSELLFEE"],
+    "DECIMALS": ["DECIMALS"],
 }
 
 MKT_COLS = {
@@ -117,6 +127,7 @@ def fetch_moex_forts() -> pd.DataFrame:
 
     df = sec.merge(mkt, on="SECID", how="left")
 
+    # Числовые колонки
     numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
                     "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
                     "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"]
@@ -125,6 +136,14 @@ def fetch_moex_forts() -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         else:
             df[col] = 0
+
+    # Текстовые колонки — приводим к строке и заполняем пустой строкой
+    text_cols = ["SHORTNAME", "ASSETCODE", "GROUP", "SECTYPE", "DELIVERYTYPE"]
+    for col in text_cols:
+        if col not in df.columns:
+            df[col] = ""
+        else:
+            df[col] = df[col].fillna("").astype(str)
 
     price = df["LAST"].where(df["LAST"] > 0, df["PREVSETTLEPRICE"])
     multiplier = df["STEPPRICE"] / df["MINSTEP"].replace(0, 1)
@@ -140,7 +159,6 @@ MOEX_IMS_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/ims"
 
 @st.cache_data(ttl=60, show_spinner="Загрузка ГО (IMS)…")
 def fetch_moex_ims() -> pd.DataFrame:
-    """Загружает значения ГО по уровням риска (LONG/SHORT, LRC/MRC/HRC/ERC)."""
     params = {"iss.meta": "off", "format": "json"}
     try:
         r = requests.get(MOEX_IMS_URL, params=params, timeout=15)
@@ -161,7 +179,6 @@ def fetch_moex_ims() -> pd.DataFrame:
             st.warning(f"Не удалось загрузить данные ГО (IMS): {e}")
             return pd.DataFrame()
 
-    # Нормализация названий колонок в верхний регистр (защита от разнобоя)
     df.columns = [str(c).upper() for c in df.columns]
 
     numeric_cols = ["IM_BUY", "IM_SELL", "IM_BUY_LRC", "IM_SELL_LRC",
