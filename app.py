@@ -1,140 +1,264 @@
+import pandas as pd
 import streamlit as st
-from datetime import datetime
-from data import (
-    load_api, load_go, load_marketdata, fetch_moex_forts,
-    export_cache_to_string, import_cache_from_string,
-    load_trend_cache, save_trend_cache
+import requests
+from datetime import datetime, timedelta
+import json
+import os
+
+# ВАЖНО: Замените на ваш ID таблицы и GID вкладок!
+SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ_ИЗ_ССЫЛКИ"
+GIDS = {
+    "API": "0",
+    "MARKETDATA": "0",
+    "ГО": "0",
+    "Списки": "0",
+}
+
+MARGIN_COL_MAP = {
+    "НАЧ. ГО": (4, 5),
+    "КНУР":    (6, 7),
+    "КСУР":    (8, 9),
+    "КПУР":    (10, 11),
+    "КОУР":    (12, 13),
+}
+
+# ==========================================
+# 1. ЗАГРУЗКА ИЗ GOOGLE SHEETS
+# ==========================================
+@st.cache_data(ttl=60, show_spinner=False)
+def _load(gid: str) -> pd.DataFrame:
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
+    try:
+        return pd.read_csv(url)
+    except Exception:
+        return pd.DataFrame()
+
+def load_api():         return _load(GIDS["API"])
+def load_go():          return _load(GIDS["ГО"])
+def load_marketdata():  return _load(GIDS["MARKETDATA"])
+def load_lists():       return _load(GIDS["Списки"])
+
+def vlookup(df: pd.DataFrame, key, col_idx: int):
+    if df.empty:
+        return "-"
+    try:
+        mask = df.iloc[:, 0].astype(str).str.strip() == str(key).strip()
+        rows = df.loc[mask]
+        if rows.empty:
+            return "-"
+        val = rows.iloc[0, col_idx - 1]
+        return val if pd.notna(val) else "-"
+    except Exception:
+        return "-"
+
+def to_float(x, default=0.0) -> float:
+    try:
+        return float(str(x).replace(" ", "").replace(",", "."))
+    except Exception:
+        return default
+
+def get_margin(go_df, ticker, risk_level, direction) -> float:
+    if risk_level not in MARGIN_COL_MAP:
+        return 0.0
+    col_long, col_short = MARGIN_COL_MAP[risk_level]
+    col = col_long if direction == "LONG" else col_short
+    return to_float(vlookup(go_df, ticker, col))
+
+
+# ==========================================
+# 2. ЗАГРУЗКА ИЗ MOEX ISS (Текущие данные)
+# ==========================================
+MOEX_URL = (
+    "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
+    "?iss.meta=off&iss.only=securities,marketdata"
 )
-from tabs.main_table import render_main_tab
-from tabs.screener import render_screener
-from tabs.trade_planner import render_trade_planner
 
-st.set_page_config(page_title="Калькулятор фьючерсов", page_icon="📈", layout="wide")
+SEC_COLS = {
+    "SECID": ["SECID"], "SHORTNAME": ["SHORTNAME"], "ASSETCODE": ["ASSETCODE"],
+    "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
+    "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
+    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], 
+    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"],
+}
 
-try:
-    # Загружаем глобальные настройки из JSON
+MKT_COLS = {
+    "SECID": ["SECID"], "LAST": ["LAST"], "VALTODAY": ["VALTODAY"],
+    "OPENPOSITION": ["OPENPOSITION"], "HIGH": ["HIGH"], "LOW": ["LOW"],
+    "UPDATETIME": ["UPDATETIME"], "LOTVOLUME": ["LOTVOLUME", "NUMTRADES"],
+}
+
+def _pick_columns(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
+    out = pd.DataFrame()
+    for std_name, candidates in mapping.items():
+        found = False
+        for c in candidates:
+            if c in df.columns:
+                out[std_name] = df[c]
+                found = True
+                break
+        if not found:
+            out[std_name] = None
+    return out
+
+@st.cache_data(ttl=30, show_spinner="Загрузка данных MOEX ISS…")
+def fetch_moex_forts() -> pd.DataFrame:
+    try:
+        r = requests.get(MOEX_URL, timeout=15)
+        r.raise_for_status()
+        js = r.json()
+    except Exception as e:
+        st.error(f"Ошибка MOEX ISS: {e}")
+        return pd.DataFrame()
+
+    sec_raw = pd.DataFrame(js["securities"]["data"], columns=js["securities"]["columns"])
+    mkt_raw = pd.DataFrame(js["marketdata"]["data"], columns=js["marketdata"]["columns"])
+
+    sec = _pick_columns(sec_raw, SEC_COLS)
+    mkt = _pick_columns(mkt_raw, MKT_COLS)
+
+    df = sec.merge(mkt, on="SECID", how="left")
+
+    numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
+                    "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
+                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        else:
+            df[col] = 0
+
+    price = df["LAST"].where(df["LAST"] > 0, df["PREVSETTLEPRICE"])
+    multiplier = df["STEPPRICE"] / df["MINSTEP"].replace(0, 1)
+    df["Notional"] = price * multiplier
+    df["Updated"] = pd.to_datetime(df["UPDATETIME"], errors="coerce")
+    return df
+
+
+# ==========================================
+# 3. ЗАГРУЗКА СВЕЧЕЙ (Исторические данные)
+# ==========================================
+MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/{ticker}/candles.json"
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.DataFrame:
+    from_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    till_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    all_chunks = []
+    start = 0
+    max_pages = 30
+
+    for _ in range(max_pages):
+        params = {
+            "interval": interval, "from": from_date, "till": till_date,
+            "start": start, "iss.meta": "off",
+        }
+        try:
+            r = requests.get(MOEX_CANDLES_URL.format(ticker=ticker), params=params, timeout=15)
+            r.raise_for_status()
+            js = r.json()
+        except Exception:
+            break
+
+        block = js.get("candles")
+        if not block or not block.get("data"):
+            break
+
+        chunk = pd.DataFrame(block["data"], columns=block["columns"])
+        all_chunks.append(chunk)
+
+        if len(chunk) < 500:
+            break
+        start += 500
+
+    if not all_chunks:
+        return pd.DataFrame()
+
+    df = pd.concat(all_chunks, ignore_index=True).drop_duplicates(subset=["begin"])
+
+    required = ["begin", "open", "high", "low", "close"]
+    if not all(col in df.columns for col in required):
+        return pd.DataFrame()
+
+    df = df.rename(columns={"begin": "Date", "open": "Open", "high": "High",
+                            "low": "Low", "close": "Close", "volume": "Volume"})
+    if "Volume" not in df.columns:
+        df["Volume"] = 0
+
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date").sort_index()
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    return df
+
+
+# ==========================================
+# 4. СОХРАНЕНИЕ И ЗАГРУЗКА ТЕХНИЧЕСКОЙ АНАЛИТИКИ (JSON)
+# ==========================================
+CACHE_FILE = "trend_cache.json"
+
+def load_trend_cache() -> dict:
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_trend_cache(ticker: str, data_dict: dict):
     cache = load_trend_cache()
-    global_settings = cache.get("_global", {})
+    cache[ticker] = data_dict
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"Не удалось сохранить кэш: {e}")
 
-    # Инициализация стейта бокового меню
-    if "sb_strategy" not in st.session_state:
-        st.session_state["sb_strategy"] = global_settings.get("strategy", "Зигзаг тенденции")
-    if "sb_deposit" not in st.session_state:
-        st.session_state["sb_deposit"] = global_settings.get("deposit", 75000)
-    if "sb_comm" not in st.session_state:
-        st.session_state["sb_comm"] = global_settings.get("commission", "Т-Инвестиции")
-    if "sb_margin" not in st.session_state:
-        st.session_state["sb_margin"] = global_settings.get("margin_type", "КСУР")
-    if "sb_rr" not in st.session_state:
-        st.session_state["sb_rr"] = global_settings.get("rr_ratio", 3.0)
+def build_export_cache() -> dict:
+    """Собирает полный JSON-кэш из текущего st.session_state и файла."""
+    cache = load_trend_cache()
+    
+    # 1. Обновляем глобальные настройки из бокового меню
+    if "sb_strategy" in st.session_state:
+        cache["_global"] = {
+            "strategy": st.session_state["sb_strategy"],
+            "deposit": st.session_state["sb_deposit"],
+            "commission": st.session_state["sb_comm"],
+            "margin_type": st.session_state["sb_margin"],
+            "rr_ratio": st.session_state["sb_rr"]
+        }
 
-    with st.sidebar:
-        st.header("Параметры")
+    # 2. Обновляем данные для всех активных тикеров из session_state
+    active_tickers = st.session_state.get("active_tickers", [])
+    for ticker in active_tickers:
+        pts_keys = {
+            "d1_manual_pts": f"manual_channel_{ticker}_D1",
+            "d1_fib_pts": f"manual_fib_{ticker}_D1",
+            "h1_tend_pts": f"manual_tend_{ticker}_H1",
+            "h1_fib_pts": f"manual_fib_{ticker}_H1",
+            "m10_zig_pts": f"manual_zig_{ticker}_M10",
+        }
         
-        strategy = st.selectbox(
-            "Стратегия", 
-            ["Зигзаг тенденции", "Свинг торговля"], 
-            key="sb_strategy"
-        )
-        
-        deposit = st.number_input(
-            "Депозит, ₽", min_value=1_000, step=1_000, key="sb_deposit"
-        )
-        
-        commission = st.selectbox(
-            "Комиссия", 
-            ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], 
-            key="sb_comm"
-        )
-        
-        margin_type = st.selectbox(
-            "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"], 
-            key="sb_margin"
-        )
-        
-        rr_ratio = st.number_input(
-            "Risk Reward (1 к ...)", min_value=1.0, step=0.5, key="sb_rr",
-            help="Глобальное соотношение риска к прибыли для всех калькуляторов"
-        )
-        
-        if st.button("Обновить данные", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+        ticker_data = {}
+        for cache_key, skey in pts_keys.items():
+            pts = st.session_state.get(skey, [])
+            ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
             
-        st.markdown("---")
-        st.header("Управление настройками")
-        
-        cache_str = export_cache_to_string()
-        filename = datetime.now().strftime('%d.%m.%y.%H-%M') + ".futures"
-        
-        st.download_button(
-            label="Экспорт сессии",
-            data=cache_str,
-            file_name=filename,
-            mime="application/json",
-            use_container_width=True,
-        )
-        
-        uploaded_file = st.file_uploader("Импорт сессии", type=["futures", "json"])
-        if uploaded_file is not None:
-            if st.button("Применить импорт", type="primary", use_container_width=True):
-                string_data = uploaded_file.getvalue().decode("utf-8")
-                if import_cache_from_string(string_data):
-                    st.success("Настройки успешно загружены!")
-                    for k in list(st.session_state.keys()):
-                        if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_") or k.startswith("sb_"):
-                            del st.session_state[k]
-                    st.rerun()
-                else:
-                    st.error("Ошибка: неверный формат файла.")
+        cache[ticker] = ticker_data
 
-    # Сохраняем глобальные настройки в JSON, если они изменились
-    new_global_settings = {
-        "strategy": strategy,
-        "deposit": deposit,
-        "commission": commission,
-        "margin_type": margin_type,
-        "rr_ratio": rr_ratio
-    }
-    if new_global_settings != global_settings:
-        save_trend_cache("_global", new_global_settings)
+    return cache
 
-    with st.spinner("Загрузка данных с MOEX ISS..."):
-        iss_df = fetch_moex_forts()
+def export_cache_to_string() -> str:
+    cache = build_export_cache()
+    return json.dumps(cache, ensure_ascii=False, indent=4)
 
-    api_df = load_api()
-    go_df = load_go()
-    md_df = load_marketdata()
-
-    if "active_tickers" not in st.session_state:
-        st.session_state["active_tickers"] = []
-    if "market_state" not in st.session_state:
-        st.session_state["market_state"] = {}
-
-    tab_names = ["Данные с биржи", "Скринер"] + st.session_state["active_tickers"]
-    tabs = st.tabs(tab_names)
-
-    with tabs[0]:
-        render_main_tab(
-            api_df=api_df, go_df=go_df, md_df=md_df, 
-            iss_df=iss_df, deposit=deposit, margin_type=margin_type
-        )
-
-    with tabs[1]:
-        render_screener(iss_df=iss_df)
-
-    for i, ticker in enumerate(st.session_state["active_tickers"]):
-        with tabs[2 + i]:
-            render_trade_planner(
-                ticker=ticker,
-                api_df=api_df, go_df=go_df, md_df=md_df,
-                iss_df=iss_df,
-                deposit=deposit,
-                rr_ratio=rr_ratio,
-                commission=commission,
-                strategy=strategy,
-            )
-
-except Exception as e:
-    st.error("Критическая ошибка приложения:")
-    st.exception(e)
+def import_cache_from_string(json_str: str) -> bool:
+    try:
+        data = json.loads(json_str)
+        if not isinstance(data, dict):
+            return False
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception:
+        return False
