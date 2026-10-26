@@ -11,6 +11,14 @@ from tabs.trade_planner import render_trade_planner
 
 st.set_page_config(page_title="Калькулятор фьючерсов", page_icon="📈", layout="wide")
 
+MARGIN_HINTS = {
+    "НАЧ. ГО": "НАЧ. ГО — базовое гарантийное обеспечение",
+    "КНУР":    "КНУР — начальный (новичкам с 01.04.2025)",
+    "КСУР":    "КСУР — стандартный (сделка с маржой + 5 дней торговли за год)",
+    "КПУР":    "КПУР — повышенный (квал. инвестор / >3 млн ₽ / >600 тыс ₽ от полугода)",
+    "КОУР":    "КОУР — особый уровень риска",
+}
+
 try:
     cache = load_trend_cache()
     global_settings = cache.get("_global", {})
@@ -52,7 +60,12 @@ try:
             "Комиссия", ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], key="sb_comm"
         )
 
-        margin_type = st.selectbox("Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"], key="sb_margin")
+        margin_type = st.selectbox(
+            "Тип ГО (базовый)",
+            ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"],
+            key="sb_margin",
+            format_func=lambda x: MARGIN_HINTS.get(x, x),
+        )
 
         rr_ratio = st.number_input(
             "Risk Reward (1 к ...)", min_value=1.0, step=0.5, key="sb_rr",
@@ -88,11 +101,9 @@ try:
                 string_data = uploaded_file.getvalue().decode("utf-8")
                 if import_cache_from_string(string_data):
                     st.success("Настройки успешно загружены!")
-                    # Перечитываем кэш и явно восстанавливаем вкладки + состояние таблицы
                     fresh_cache = load_trend_cache()
                     st.session_state["active_tickers"] = fresh_cache.get("_active_tickers", [])
                     st.session_state["market_state"] = fresh_cache.get("_market_state", {})
-                    # Сбрасываем UI-состояние, чтобы всё пересоздалось из кэша
                     for k in list(st.session_state.keys()):
                         if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_") or k.startswith("sb_"):
                             del st.session_state[k]
@@ -122,7 +133,7 @@ try:
         render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=deposit, margin_type=margin_type)
 
     with tabs[1]:
-        render_screener(iss_df=iss_df)
+        render_screener(iss_df=iss_df, go_df=go_df, deposit=deposit, margin_type=margin_type)
 
     for i, ticker in enumerate(st.session_state["active_tickers"]):
         with tabs[2 + i]:
