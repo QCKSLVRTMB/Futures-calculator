@@ -194,7 +194,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # Ручной зигзаг H1
+    # Ручной зигзаг H1 и Зоны RR
     manual_points_key = f"manual_zigzag_{ticker}_H1"
     manual_pts = []
     if is_h1 and manual_points_key in st.session_state and st.session_state[manual_points_key]:
@@ -208,6 +208,41 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             line=dict(color='red', width=3),
             name='Ручной зигзаг (H1)'
         ), row=1, col=1)
+
+        # Отрисовка зон RR (по последним двум точкам)
+        if len(manual_pts) >= 2:
+            t_c, p_c = manual_pts[-2]
+            t_d, p_d = manual_pts[-1]
+            
+            low = min(p_c, p_d)
+            high = max(p_c, p_d)
+            diff = high - low
+            
+            if diff > 0:
+                y1_start, y1_end = low, low + diff/3
+                y3_start, y3_end = low + 2*diff/3, high
+                
+                # Определяем цвета (нижняя и верхняя треть)
+                if p_d > p_c: # Восходящая
+                    color_bottom = "rgba(0, 128, 0, 0.2)"  # Зеленый
+                    color_top = "rgba(255, 0, 0, 0.2)"     # Красный
+                else:         # Нисходящая
+                    color_bottom = "rgba(255, 0, 0, 0.2)"  # Красный
+                    color_top = "rgba(0, 128, 0, 0.2)"     # Зеленый
+
+                # Нижняя треть
+                fig.add_shape(
+                    type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
+                    fillcolor=color_bottom, line=dict(width=0),
+                    layer="below", xref="x", yref="y", row=1, col=1
+                )
+                
+                # Верхняя треть
+                fig.add_shape(
+                    type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end,
+                    fillcolor=color_top, line=dict(width=0),
+                    layer="below", xref="x", yref="y", row=1, col=1
+                )
 
     breakouts = []
     if is_h1 and manual_pts:
