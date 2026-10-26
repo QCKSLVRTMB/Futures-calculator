@@ -465,8 +465,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
                     trend_text=trend_d1 if is_d1 else "",
-                    channel_data=final_channel if is_d1 else None,
-                    annotations_data=final_annotations if is_d1 else None,
+                    channel_data=final_channel,
+                    annotations_data=final_annotations,
                     is_h1=is_h1
                 )
                 if fig:
