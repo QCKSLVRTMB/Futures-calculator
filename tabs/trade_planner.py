@@ -210,7 +210,7 @@ def find_volume_cluster_zones(df_h1, threshold_mult=3.0, window=20):
 
     Каждая зона потом продлевается в обе стороны на графике и рисуется
     полупрозрачным прямоугольником. Наложения копят альфу — где больше
-    наложений, там цвет ярче. Так и формируются видимые кластеры.
+    наложений, там цвет ярче.
     """
     if df_h1 is None or df_h1.empty or 'Volume' not in df_h1.columns:
         return []
@@ -693,6 +693,27 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                         st.session_state[active_deb] = 0.0
                         st.rerun()
 
+                # ============ Подсказка по направлению для зигзагов ============
+                if active_k in ["h1_tend", "m10_zig"]:
+                    pts_now = st.session_state.get(active_skey, [])
+                    if not isinstance(pts_now, list):
+                        pts_now = []
+                    if len(pts_now) == 0:
+                        st.caption(
+                            "🖱️ **Первый клик**: ближе к вершине бара → поставится **High** (максимум), "
+                            "ближе к основанию → **Low** (минимум)."
+                        )
+                    elif len(pts_now) == 1:
+                        st.caption(
+                            "🖱️ **Второй клик**: кликните **выше** первой точки → максимум, "
+                            "**ниже** → минимум."
+                        )
+                    else:
+                        last_y = pts_now[-1][1]
+                        prev_y = pts_now[-2][1]
+                        next_dir = "**Low** (минимум)" if last_y > prev_y else "**High** (максимум)"
+                        st.caption(f"🖱️ Точек: **{len(pts_now)}** · Следующая: {next_dir}")
+
             df_candles = fetch_moex_candles(ticker, interval=cfg["interval"], days_back=cfg["days_back"])
             if df_candles.empty:
                 st.info(f"Нет данных для {tf_name}.")
@@ -756,18 +777,24 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                                 if max_pts is None or len(new_pts) < max_pts:
                                     if active_k in ["h1_tend", "m10_zig"]:
                                         if new_pts and new_pts[-1][0] == bar.name:
+                                            # клик по тому же бару — переключаем High ↔ Low
                                             last_y = new_pts[-1][1]
                                             snapped_y = float(bar['Low']) if np.isclose(last_y, bar['High']) else float(bar['High'])
                                             new_pts[-1] = (bar.name, snapped_y)
                                         elif not new_pts:
-                                            current_price = df_view.iloc[-1]['Close']
-                                            clicked_mid = (bar['High'] + bar['Low']) / 2
-                                            snapped_y = float(bar['Low']) if clicked_mid < current_price else float(bar['High'])
+                                            # первая точка: направление по позиции клика на баре
+                                            snapped_y = (
+                                                float(bar['High'])
+                                                if abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
+                                                else float(bar['Low'])
+                                            )
                                             new_pts.append((bar.name, snapped_y))
                                         elif len(new_pts) == 1:
+                                            # вторая точка: по позиции клика относительно первой
                                             snapped_y = float(bar['High']) if clicked_y > new_pts[0][1] else float(bar['Low'])
                                             new_pts.append((bar.name, snapped_y))
                                         else:
+                                            # последующие: авто-чередование High ↔ Low
                                             last_time, last_y = new_pts[-1]
                                             is_last_high = np.isclose(last_y, df_view.loc[last_time, 'High'])
                                             snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
