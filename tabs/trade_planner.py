@@ -8,9 +8,9 @@ from data import vlookup, to_float, get_margin, fetch_moex_candles
 from rules import lookup
 
 INTERVALS = {
-    "D1":  {"interval": 24, "days_back": 250, "is_intraday": False, "show_trend": True},
-    "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True,  "show_trend": False},
-    "M10": {"interval": 10, "days_back": 5,   "is_intraday": True,  "show_trend": False},
+    "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
+    "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True},
+    "M10": {"interval": 10, "days_back": 5,   "is_intraday": True},
 }
 
 def _div(a, b, default=0.0):
@@ -51,6 +51,7 @@ def detect_trend(df):
     return "Боковик"
 
 def get_zigzag_pivots(df, deviation_pct=0.05):
+    """Находит крупные свинги на основе заданного процента отклонения."""
     pivots = []
     if len(df) < 2: return pivots
     
@@ -92,6 +93,7 @@ def get_zigzag_pivots(df, deviation_pct=0.05):
     return pivots
 
 def get_auto_sperandeo_channel(pivots, trend_direction):
+    """Формирует точки для канала (P1, P2, P3) на основе свингов."""
     if len(pivots) < 3:
         return None
 
@@ -126,11 +128,12 @@ def get_auto_sperandeo_channel(pivots, trend_direction):
                         }
     return None
 
-def add_sperandeo_annotations(fig, df, trend_direction, decimals=0):
+def get_sperandeo_annotations_data(df, trend_direction, deviation_pct, decimals=0):
+    """Возвращает список координат для плашек (экстремумов), найденных на D1."""
     if len(df) < 10:
-        return
+        return []
 
-    pivots = get_zigzag_pivots(df, deviation_pct=0.05)
+    pivots = get_zigzag_pivots(df, deviation_pct=deviation_pct)
     annotations = []
     
     if trend_direction == "Тренд вверх":
@@ -159,32 +162,18 @@ def add_sperandeo_annotations(fig, df, trend_direction, decimals=0):
                 if l2[2] < l1[2] and h2[2] < h1[2]:
                     annotations.extend([l1, h1, l2])
 
+    # Удаляем дубликаты и сортируем
     seen = set()
-    unique_annotations = []
+    unique = []
     for a in annotations:
         if a[0] not in seen:
             seen.add(a[0])
-            unique_annotations.append(a)
-    unique_annotations.sort(key=lambda x: x[0])
+            unique.append(a)
+    unique.sort(key=lambda x: x[0])
 
-    fmt = f",.{decimals}f"
-    
-    for idx, typ, val in unique_annotations:
-        price_str = f"{val:{fmt}}"
-        if typ == 'high':
-            fig.add_annotation(
-                x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
-                ax=0, ay=-40, bgcolor="black", font=dict(color="white", size=10),
-                bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
-            )
-        else:
-            fig.add_annotation(
-                x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
-                ax=0, ay=40, bgcolor="black", font=dict(color="white", size=10),
-                bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
-            )
+    return unique
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None):
     if df_chart.empty:
         return None
 
@@ -221,9 +210,8 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
-    if show_trend:
-        trend_text = detect_trend(df_chart)
-        
+    # --- ПЛАШКА ТРЕНДА ---
+    if trend_text:
         if trend_text == "Тренд вверх":
             bg_color, font_color = "#198754", "white"
         elif trend_text == "Тренд вниз":
@@ -240,46 +228,64 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             borderpad=6, opacity=0.9
         )
 
-        if not is_intraday:
-            add_sperandeo_annotations(fig, df_chart, trend_text, decimals=decimals)
+    # --- ПЛАШКИ ЭКСТРЕМУМОВ (привязка к датам) ---
+    if annotations_data:
+        fmt = f",.{decimals}f"
+        for idx, typ, val in annotations_data:
+            price_str = f"{val:{fmt}}"
+            if typ == 'high':
+                fig.add_annotation(
+                    x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
+                    ax=0, ay=-40, bgcolor="black", font=dict(color="white", size=10),
+                    bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
+                )
+            else:
+                fig.add_annotation(
+                    x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
+                    ax=0, ay=40, bgcolor="black", font=dict(color="white", size=10),
+                    bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
+                )
+
+    # --- ЛУЧИ КАНАЛА (привязка к датам и времени) ---
+    if channel_data:
+        try:
+            x1, y1 = channel_data['p1']
+            x2, y2 = channel_data['p2']
+            x3, y3 = channel_data['p3']
             
-            pivots = get_zigzag_pivots(df_chart, deviation_pct=0.05)
-            auto_channel = get_auto_sperandeo_channel(pivots, trend_text)
+            # Рассчитываем наклон в пространстве Unix timestamp (секунды)
+            time1 = pd.to_datetime(x1).timestamp()
+            time2 = pd.to_datetime(x2).timestamp()
+            time3 = pd.to_datetime(x3).timestamp()
             
-            if auto_channel:
-                try:
-                    x1_idx = df_chart.index.get_loc(auto_channel['p1'][0])
-                    y1 = auto_channel['p1'][1]
-                    x2_idx = df_chart.index.get_loc(auto_channel['p2'][0])
-                    y2 = auto_channel['p2'][1]
-                    x3_idx = df_chart.index.get_loc(auto_channel['p3'][0])
-                    y3 = auto_channel['p3'][1]
+            dt_12 = time2 - time1 if time2 != time1 else 1
+            slope_time = (y2 - y1) / dt_12
+            
+            # Определяем, насколько далеко продлить луч вправо (на 20 баров текущего таймфрейма)
+            if len(df_chart) > 1:
+                avg_delta = (df_chart.index[-1] - df_chart.index[0]) / max(1, len(df_chart) - 1)
+                dt_end = df_chart.index[-1] + avg_delta * 20
+                time_end = dt_end.timestamp()
+            else:
+                dt_end = df_chart.index[-1]
+                time_end = dt_end.timestamp()
 
-                    time1 = df_chart.index[x1_idx].timestamp()
-                    time2 = df_chart.index[x2_idx].timestamp()
-                    time3 = df_chart.index[x3_idx].timestamp()
-                    
-                    dt_12 = time2 - time1 if time2 != time1 else 1
-                    slope_time = (y2 - y1) / dt_12
-                    
-                    avg_delta = (df_chart.index[-1] - df_chart.index[0]) / max(1, len(df_chart) - 1)
-                    dt_end = df_chart.index[-1] + avg_delta * 20
-                    time_end = dt_end.timestamp()
+            # Вычисляем конечные Y для обоих лучей
+            y_ray1_end = slope_time * (time_end - time1) + y1
+            y_ray2_end = slope_time * (time_end - time3) + y3
 
-                    y_ray1_end = slope_time * (time_end - time1) + y1
-                    y_ray2_end = slope_time * (time_end - time3) + y3
-
-                    fig.add_trace(go.Scatter(
-                        x=[df_chart.index[x1_idx], dt_end], y=[y1, y_ray1_end], 
-                        mode='lines', name='Линия тренда', line=dict(color='blue', width=2)
-                    ), row=1, col=1)
-                    
-                    fig.add_trace(go.Scatter(
-                        x=[df_chart.index[x3_idx], dt_end], y=[y3, y_ray2_end], 
-                        mode='lines', name='Граница канала', line=dict(color='blue', width=2)
-                    ), row=1, col=1)
-                except Exception:
-                    pass
+            fig.add_trace(go.Scatter(
+                x=[pd.to_datetime(x1), dt_end], y=[y1, y_ray1_end], 
+                mode='lines', name='Линия тренда', line=dict(color='blue', width=2)
+            ), row=1, col=1)
+            
+            fig.add_trace(go.Scatter(
+                x=[pd.to_datetime(x3), dt_end], y=[y3, y_ray2_end], 
+                mode='lines', name='Граница канала', line=dict(color='blue', width=2)
+            ), row=1, col=1)
+            
+        except Exception as e:
+            pass
 
     fig.update_layout(
         title=title, height=700,
@@ -354,6 +360,19 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
+    # --- 1. АНАЛИЗ D1 ---
+    df_d1 = fetch_moex_candles(ticker, interval=24, days_back=250)
+    trend_d1 = detect_trend(df_d1) if not df_d1.empty else "Боковик"
+    
+    channel_data = None
+    annotations_data = []
+    
+    if not df_d1.empty:
+        pivots = get_zigzag_pivots(df_d1, deviation_pct=0.05)
+        channel_data = get_auto_sperandeo_channel(pivots, trend_d1)
+        annotations_data = get_sperandeo_annotations_data(df_d1, trend_d1, deviation_pct=0.05, decimals=decimals)
+
+    # --- 2. ВВОД ABCD ---
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -367,6 +386,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         ok, msg = check_zigzag_pattern(p_a, p_b, p_c, p_d, direction)
         (st.success if ok else st.warning)(msg)
 
+    # --- 3. ГРАФИКИ ---
     st.markdown("#### 📊 Графики рынка (MOEX ISS)")
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
 
@@ -385,12 +405,15 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
+                # Передаем найденные на D1 точки (annotations_data и channel_data) во все ТФ
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
-                    show_trend=cfg["show_trend"],
+                    trend_text=trend_d1,
+                    channel_data=channel_data,
+                    annotations_data=annotations_data
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
