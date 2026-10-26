@@ -30,6 +30,15 @@ ASSET_BA_MAP = {
     "RUIBS": "Ставка", "RUONIA": "Ставка",
 }
 
+# Порядок уровней ликвидности — от лучшего к худшему (для красивого порядка в мультиселекте)
+LIQUIDITY_ORDER = [
+    "🟢 Высокая",
+    "🟡 Средняя",
+    "🟠 Низкая",
+    "🔴 Очень низкая",
+    "— Нет открытых позиций",
+]
+
 # ============ ЕДИНЫЙ ФОРМАТ ЧИСЕЛ ============
 def _fmt_money(v):
     """Денежный формат: 19747,62 ₽"""
@@ -70,7 +79,7 @@ def _liquidity_rating(open_interest):
     try:
         v = float(open_interest)
     except (ValueError, TypeError):
-        return "—"
+        return "— Нет открытых позиций"
     if v >= 500_000:
         return "🟢 Высокая"
     if v >= 100_000:
@@ -326,15 +335,20 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
                     st.session_state["scr_exp"] = []
                     st.rerun()
     with f3:
-        min_open_interest = st.number_input(
-            "Мин. открытый интерес (контр.)",
-            min_value=0,
-            max_value=10_000_000,
-            step=1000,
-            value=0,
-            key="scr_min_oi",
-            help="Показать только контракты с открытым интересом (OPENPOSITION) не менее указанного значения. 0 — без фильтра.",
+        available_liquidity = [lv for lv in LIQUIDITY_ORDER if lv in df["Liquidity"].unique().tolist()]
+        liq_pick = st.multiselect(
+            f"Ликвидность ({len(available_liquidity)})",
+            available_liquidity, default=[], key="scr_liq",
+            help="Оценка по открытому интересу. Пусто — показать все. Можно выбрать несколько уровней.",
         )
+        if liq_pick:
+            c_l, c_r = st.columns([3, 1])
+            with c_l:
+                st.caption(f"Выбрано: {len(liq_pick)} из {len(available_liquidity)}")
+            with c_r:
+                if st.button("Сброс", key="scr_liq_reset", use_container_width=True):
+                    st.session_state["scr_liq"] = []
+                    st.rerun()
 
     # ============ ФИЛЬТРЫ (ряд 3: чекбоксы) ============
     f1, f2, f3 = st.columns([2, 2, 2])
@@ -368,10 +382,10 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         view = view[view["ASSETCODE"].isin(asset_pick)]
     if exp_pick:
         view = view[view["LASTTRADEDATE"].isin(exp_pick)]
+    if liq_pick:
+        view = view[view["Liquidity"].isin(liq_pick)]
     if only_traded:
         view = view[view["VALTODAY"].fillna(0) > 0]
-    if min_open_interest > 0:
-        view = view[view["OPENPOSITION"].fillna(0) >= min_open_interest]
 
     if only_nearest and not view.empty:
         mask_valid = view["ASSETCODE"].fillna("").astype(str) != ""
@@ -399,8 +413,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         filter_desc.append(f"активы: {len(asset_pick)}")
     if exp_pick:
         filter_desc.append(f"экспираций: {len(exp_pick)}")
-    if min_open_interest > 0:
-        filter_desc.append(f"откр. интерес ≥ {_fmt_int(min_open_interest)}")
+    if liq_pick:
+        filter_desc.append(f"ликвидность: {', '.join(liq_pick)}")
     if only_nearest:
         filter_desc.append("только ближайшие контракты")
     filter_text = " · ".join(filter_desc) if filter_desc else "без дополнительных фильтров"
