@@ -75,10 +75,10 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
-        # --- ПЕРЕКРЕСТИЕ ---
-        hovermode='x unified',   # единая подсказка по вертикали
-        hoverdistance=-1,        # реагировать на всё поле графика
-        spikedistance=-1,        # спайки не исчезают при отдалении
+        # --- ВОЗВРАТ ПОДСКАЗКИ ---
+        hovermode='closest',     # Показывать подсказку только для ближайшего бара
+        # spikedistance=-1 оставляем, чтобы спайки работали по всему полю
+        spikedistance=-1,
     )
 
     # Скрываем выходные
@@ -97,23 +97,23 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
-        # --- ПЕРЕКРЕСТИЕ ПО X ---
+        # --- ПУНКТИРНОЕ ПЕРЕКРЕСТИЕ ПО X ---
         showspikes=True,
         spikemode='across',
         spikesnap='cursor',
         spikecolor='gray',
         spikethickness=1,
-        spikedash='solid',
+        spikedash='dash',        # Пунктирная линия
     )
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
-        # --- ПЕРЕКРЕСТИЕ ПО Y ---
+        # --- ПУНКТИРНОЕ ПЕРЕКРЕСТИЕ ПО Y ---
         showspikes=True,
         spikemode='across',
         spikesnap='cursor',
         spikecolor='gray',
         spikethickness=1,
-        spikedash='solid',
+        spikedash='dash',        # Пунктирная линия
     )
     return fig
 
