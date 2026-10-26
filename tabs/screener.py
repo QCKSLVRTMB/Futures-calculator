@@ -3,13 +3,14 @@ import pandas as pd
 from datetime import datetime
 from data import get_margin
 
-TARIFFS = {
+# Конфиги тарифов — ключами служат ярлыки из sidebar
+TARIFF_CONFIGS = {
+    "Т-Инвестиции": {"type": "percent", "broker_percent": 0.001, "clearing_fee": 0.0, "min_fee": 0.01},
     "Финам СТАНДАРТНЫЙ ФОРТС": {"type": "fixed", "broker_fee": 0.45, "clearing_fee": 4.65, "min_fee": 0.01},
-    "Т-Инвестиции ИНВЕСТОР": {"type": "percent", "broker_percent": 0.001, "clearing_fee": 0.0, "min_fee": 0.01},
-    "Без комиссии брокера (только биржа)": {"type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0}
+    "Без комиссии": {"type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0},
 }
 
-# Сопоставление уровня риска с колонками IMS
+# Маппинг уровня риска → колонки IMS (LONG, SHORT)
 IMS_MARGIN_MAP = {
     "НАЧ. ГО": ("IM_BUY", "IM_SELL"),
     "КНУР":    ("IM_BUY_LRC", "IM_SELL_LRC"),
@@ -18,17 +19,11 @@ IMS_MARGIN_MAP = {
     "КОУР":    ("IM_BUY_ERC", "IM_SELL_ERC"),
 }
 
-def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР"):
+
+def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР", commission="Т-Инвестиции"):
     st.subheader("🔍 Скринер фьючерсов MOEX")
 
-    t1, t2 = st.columns([2, 3])
-    with t1:
-        selected_tariff = st.selectbox("Тариф брокера", list(TARIFFS.keys()), index=0, key="scr_tariff")
-    with t2:
-        st.write("")
-        st.caption("Комиссии рассчитываются для покупки и продажи через торговые программы.")
-
-    t_conf = TARIFFS[selected_tariff]
+    t_conf = TARIFF_CONFIGS.get(commission, TARIFF_CONFIGS["Т-Инвестиции"])
 
     if iss_df.empty:
         st.info("Нет данных MOEX ISS — проверьте подключение.")
@@ -36,7 +31,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
 
     df = iss_df.copy()
 
-    # ============ КОМИССИИ ============
+    # ============ КОМИССИИ (из тарифа, выбранного в sidebar) ============
     if t_conf["type"] == "fixed":
         df["Commission_1"] = t_conf["broker_fee"] + df["BUYSELLFEE"]
         df["Commission_addr"] = t_conf["broker_fee"]
@@ -51,15 +46,21 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     # ============ ГО LONG/SHORT из IMS ============
     buy_col, sell_col = IMS_MARGIN_MAP.get(margin_type, ("IM_BUY", "IM_SELL"))
 
+    ims_has_buy = ims_df is not None and not ims_df.empty and buy_col in ims_df.columns
+    ims_has_sell = ims_df is not None and not ims_df.empty and sell_col in ims_df.columns
+
     def _margin_from_ims(ticker):
-        if ims_df is None or ims_df.empty or "SECID" not in ims_df.columns:
+        if not (ims_has_buy and ims_has_sell):
             return 0.0, 0.0
         row = ims_df[ims_df["SECID"] == ticker]
         if row.empty:
             return 0.0, 0.0
         row = row.iloc[0]
-        long_m = float(row.get(buy_col, 0) or 0)
-        short_m = float(row.get(sell_col, 0) or 0)
+        try:
+            long_m = float(row.get(buy_col, 0) or 0)
+            short_m = float(row.get(sell_col, 0) or 0)
+        except (ValueError, TypeError):
+            return 0.0, 0.0
         return long_m, short_m
 
     def _margin_fallback(ticker):
@@ -75,25 +76,27 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             iss_row = iss_df[iss_df["SECID"] == ticker]
             if not iss_row.empty:
                 init_m = float(iss_row.iloc[0].get("INITIALMARGIN", 0) or 0)
-                if long_m <= 0:
-                    long_m = init_m
-                if short_m <= 0:
-                    short_m = init_m
+                if long_m <= 0: long_m = init_m
+                if short_m <= 0: short_m = init_m
         return long_m, short_m
 
-    long_list, short_list = [], []
+    long_list, short_list, source_list = [], [], []
     for t in df["SECID"]:
         l, s = _margin_from_ims(t)
-        if l <= 0 or s <= 0:
+        if l > 0 and s > 0:
+            source_list.append("IMS")
+        else:
             l2, s2 = _margin_fallback(t)
             l = l if l > 0 else l2
             s = s if s > 0 else s2
+            source_list.append("FALLBACK")
         long_list.append(l)
         short_list.append(s)
 
     df["MarginLong"]  = long_list
     df["MarginShort"] = short_list
     df["MarginUsed"]  = df[["MarginLong", "MarginShort"]].min(axis=1)
+    df["MarginSrc"]   = source_list
 
     def _max_contracts(m, dep):
         try:
@@ -105,6 +108,33 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             return 0
 
     df["MaxContracts"] = df["MarginUsed"].apply(lambda m: _max_contracts(m, deposit))
+
+    # ============ Инфо-строка об источнике ГО ============
+    ims_source_ok = ims_has_buy and ims_has_sell
+    sample_ticker = df.iloc[0]["SECID"] if len(df) else "—"
+    sample_row = ims_df[ims_df["SECID"] == sample_ticker] if (ims_df is not None and not ims_df.empty and "SECID" in ims_df.columns) else pd.DataFrame()
+    sample_text = ""
+    if not sample_row.empty and ims_source_ok:
+        try:
+            sample_text = f" · пример {sample_ticker}: {float(sample_row.iloc[0][buy_col]):,.0f} / {float(sample_row.iloc[0][sell_col]):,.0f} ₽"
+        except Exception:
+            sample_text = ""
+
+    if ims_source_ok:
+        st.caption(
+            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · "
+            f"Источник ГО: IMS (`{buy_col}` / `{sell_col}`){sample_text}"
+        )
+    else:
+        missing = []
+        if not ims_has_buy: missing.append(buy_col)
+        if not ims_has_sell: missing.append(sell_col)
+        st.warning(
+            f"В IMS нет колонок `{', '.join(missing)}` для уровня **{margin_type}** — "
+            f"используется fallback (Google Sheets / INITIALMARGIN из ISS). "
+            f"ГО для разных уровней может совпадать. Нажмите «Обновить данные» в sidebar, "
+            f"чтобы перезагрузить IMS, или выберите другой тип ГО."
+        )
 
     if ims_df is None or ims_df.empty:
         st.info("Данные ГО (IMS) недоступны — используется Google Sheets / INITIALMARGIN.")
@@ -146,7 +176,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     with f4:
         only_traded = st.checkbox("Только торгуемые", value=True, key="scr_traded")
 
-    col_fit, col_info = st.columns([2, 3])
+    col_fit, _ = st.columns([2, 3])
     with col_fit:
         only_fitting = st.checkbox(
             "Только помещающиеся в депозит",
@@ -154,8 +184,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             key="scr_fit",
             help=f"Скрыть контракты, на которые не хватает депозита ({deposit:,.0f} ₽) при выбранном типе ГО ({margin_type}).",
         )
-    with col_info:
-        st.caption(f"Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · Расчёт по min(LONG, SHORT)")
 
     view = df.copy()
     if search:
@@ -174,7 +202,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         st.warning("По заданным фильтрам инструментов не найдено.")
         return
 
-    # ============ ФРОНТ-МЕСЯЦЫ (по VALTODAY) ============
+    # ============ ФРОНТ-МЕСЯЦЫ ============
     main_tickers = view.sort_values("VALTODAY", ascending=False).drop_duplicates("ASSETCODE")["SECID"].tolist()
 
     # ============ ВЫВОД ============
@@ -233,8 +261,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             "Тикер": st.column_config.TextColumn(width="small"),
             "Краткое наименование": st.column_config.TextColumn(width="medium"),
             "Дата": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
-            "ГО LONG": st.column_config.NumberColumn(help="ГО на покупку из MOEX IMS по выбранному уровню риска"),
-            "ГО SHORT": st.column_config.NumberColumn(help="ГО на продажу из MOEX IMS по выбранному уровню риска"),
+            "ГО LONG": st.column_config.NumberColumn(help=f"ГО на покупку из IMS ({buy_col}) по уровню {margin_type}"),
+            "ГО SHORT": st.column_config.NumberColumn(help=f"ГО на продажу из IMS ({sell_col}) по уровню {margin_type}"),
             "ГО (min)": st.column_config.NumberColumn(help="min(ГО LONG, ГО SHORT) — используется для расчёта"),
             "Макс. контрактов": st.column_config.NumberColumn(help="Депозит / ГО (min)"),
         },
