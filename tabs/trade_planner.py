@@ -240,13 +240,13 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                     bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
                 )
 
+    # --- ЛУЧИ КАНАЛА (используем add_shape для идеальной геометрии) ---
     if channel_data:
         try:
             x1, y1 = channel_data['p1']
             x2, y2 = channel_data['p2']
             x3, y3 = channel_data['p3']
             
-            # Приводим к единому типу pd.Timestamp
             x1_ts = pd.to_datetime(x1)
             x2_ts = pd.to_datetime(x2)
             x3_ts = pd.to_datetime(x3)
@@ -261,22 +261,28 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             # Конец луча: 10 дней вперед от последнего бара
             dt_end = df_chart.index[-1] + pd.Timedelta(days=10)
             
-            # Генерируем точки с часовым шагом, чтобы Plotly корректно отрисовал линию
-            # сквозь скрытые периоды (rangebreaks: ночи и выходные)
-            line_dates = pd.date_range(start=x1_ts, end=dt_end, freq='h')
-            
-            y_ray1 = [slope_time * (t.timestamp() - time1) + y1 for t in line_dates]
-            y_ray2 = [slope_time * (t.timestamp() - time3) + y3 for t in line_dates]
+            y_ray1_end = slope_time * (dt_end.timestamp() - time1) + y1
+            y_ray2_end = slope_time * (dt_end.timestamp() - time3) + y3
 
-            fig.add_trace(go.Scatter(
-                x=line_dates, y=y_ray1, 
-                mode='lines', name='Линия тренда', line=dict(color='blue', width=2)
-            ), row=1, col=1)
+            # Рисуем луч 1
+            fig.add_shape(
+                type="line",
+                x0=x1_ts, y0=y1,
+                x1=dt_end, y1=y_ray1_end,
+                line=dict(color="blue", width=2),
+                xref="x", yref="y",
+                row=1, col=1
+            )
             
-            fig.add_trace(go.Scatter(
-                x=line_dates, y=y_ray2, 
-                mode='lines', name='Граница канала', line=dict(color='blue', width=2)
-            ), row=1, col=1)
+            # Рисуем луч 2
+            fig.add_shape(
+                type="line",
+                x0=x3_ts, y0=y3,
+                x1=dt_end, y1=y_ray2_end,
+                line=dict(color="blue", width=2),
+                xref="x", yref="y",
+                row=1, col=1
+            )
             
         except Exception as e:
             st.error(f"Ошибка отрисовки канала: {e}")
@@ -293,7 +299,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    # Устанавливаем диапазон оси X (включая будущие 10 дней для лучей)
     if len(df_chart) > 1:
         x_range = [df_chart.index[0] - pd.Timedelta(days=1), df_chart.index[-1] + pd.Timedelta(days=10)]
     else:
@@ -354,7 +359,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
-    # --- 1. АНАЛИЗ D1 ---
     df_d1 = fetch_moex_candles(ticker, interval=24, days_back=250)
     trend_d1 = detect_trend(df_d1) if not df_d1.empty else "Боковик"
     
@@ -366,7 +370,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         channel_data = get_auto_sperandeo_channel(pivots, trend_d1)
         annotations_data = get_sperandeo_annotations_data(df_d1, trend_d1, deviation_pct=0.05, decimals=decimals)
 
-    # --- 2. ВВОД ABCD ---
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -380,7 +383,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         ok, msg = check_zigzag_pattern(p_a, p_b, p_c, p_d, direction)
         (st.success if ok else st.warning)(msg)
 
-    # --- 3. ГРАФИКИ ---
     st.markdown("#### 📊 Графики рынка (MOEX ISS)")
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
 
