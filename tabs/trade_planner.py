@@ -473,6 +473,19 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     init_c = ticker_cache.get("p_c")
     init_d = ticker_cache.get("p_d")
 
+    # Инициализация точек H1 из кэша
+    pts_key = f"manual_zigzag_{ticker}_H1"
+    undo_key = f"undo_{ticker}_H1"
+    redo_key = f"redo_{ticker}_H1"
+    
+    if pts_key not in st.session_state:
+        cached_h1_pts = ticker_cache.get("h1_manual_pts", [])
+        st.session_state[pts_key] = [(pd.to_datetime(t), float(p)) for t, p in cached_h1_pts]
+    if undo_key not in st.session_state:
+        st.session_state[undo_key] = []
+    if redo_key not in st.session_state:
+        st.session_state[redo_key] = []
+
     # --- СПОЙЛЕР: ТЕХНИЧЕСКАЯ АНАЛИТИКА ---
     with st.expander("📐 Техническая аналитика графика", expanded=False):
         st.markdown(f"**Тренд (D1):** {trend_d1}")
@@ -490,15 +503,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         p_b = c2.number_input("Точка B", value=float(init_b) if init_b is not None else None, step=100.0, format="%.2f", key=key("p_b"))
         p_c = c3.number_input("Точка C", value=float(init_c) if init_c is not None else None, step=100.0, format="%.2f", key=key("p_c"))
         p_d = c4.number_input("Точка D", value=float(init_d) if init_d is not None else None, step=100.0, format="%.2f", key=key("p_d"))
-
-        current_state = {
-            "man_p1": man_p1, "man_p2": man_p2, "man_p3": man_p3,
-            "p_a": p_a, "p_b": p_b, "p_c": p_c, "p_d": p_d
-        }
-        clean_state = {k: v for k, v in current_state.items() if v is not None}
-        
-        if clean_state != ticker_cache:
-            save_trend_cache(ticker, clean_state)
 
     # Логика канала
     final_channel = auto_channel
@@ -587,19 +591,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 
                 if fig:
                     if is_h1:
-                        # Инициализация стеков истории для Undo/Redo
-                        pts_key = f"manual_zigzag_{ticker}_H1"
-                        undo_key = f"undo_{ticker}_H1"
-                        redo_key = f"redo_{ticker}_H1"
-                        
-                        if pts_key not in st.session_state:
-                            st.session_state[pts_key] = []
-                        if undo_key not in st.session_state:
-                            st.session_state[undo_key] = []
-                        if redo_key not in st.session_state:
-                            st.session_state[redo_key] = []
-
-                        # Кнопки управления
                         col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
                         with col1:
                             if st.button("⬅️ Отменить", key=f"undo_btn_{ticker}"):
@@ -639,51 +630,43 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 pts = st.session_state[pts_key]
                                 new_pts = pts.copy()
                                 
-                                # ЛОГИКА МАГНИТА
                                 if not new_pts:
-                                    # Первая точка: куда ближе
                                     snapped_y = float(bar['High']) if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']) else float(bar['Low'])
                                     new_pts.append((bar.name, snapped_y))
                                 elif len(new_pts) == 1:
-                                    # Вторая точка: определяем тренд
                                     if clicked_y > new_pts[0][1]:
                                         snapped_y = float(bar['High'])
                                     else:
                                         snapped_y = float(bar['Low'])
                                     new_pts.append((bar.name, snapped_y))
                                 else:
-                                    # Последующие точки: строго чередуем
                                     last_time, last_y = new_pts[-1]
                                     
                                     if last_time == bar.name:
-                                        # Повторный клик: инвертируем
                                         if np.isclose(last_y, bar['High']):
                                             snapped_y = float(bar['Low'])
                                         else:
                                             snapped_y = float(bar['High'])
                                         new_pts[-1] = (bar.name, snapped_y)
                                     else:
-                                        # Новый бар: смотрим на тип последней точки
                                         last_bar = df_h1_view.loc[last_time]
                                         is_last_high = np.isclose(last_y, last_bar['High'])
                                         
                                         if is_last_high:
-                                            snapped_y = float(bar['Low'])  # После High идет Low
+                                            snapped_y = float(bar['Low'])
                                         else:
-                                            snapped_y = float(bar['High']) # После Low идет High
+                                            snapped_y = float(bar['High'])
                                             
                                         new_pts.append((bar.name, snapped_y))
 
-                                # Проверяем, изменилось ли состояние
                                 if new_pts != pts:
                                     st.session_state[undo_key].append(pts.copy())
-                                    st.session_state[redo_key] = [] # Сбрасываем redo при новом действии
+                                    st.session_state[redo_key] = []
                                     st.session_state[pts_key] = new_pts
                                     st.rerun()
                         else:
                             st.plotly_chart(fig, use_container_width=True)
                             
-                        # Панель метрик
                         if breakouts:
                             st.markdown("---")
                             st.markdown("#### 📈 Анализ пробоев структуры H1")
@@ -715,6 +698,20 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                         st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
+
+    # --- СОХРАНЕНИЕ ВСЕГО КЭША В КОНЦЕ ЦИКЛА РЕНДЕРА ---
+    current_pts = st.session_state.get(pts_key, [])
+    serializable_pts = [(str(t), float(p)) for t, p in current_pts]
+    
+    final_state = {
+        "man_p1": man_p1, "man_p2": man_p2, "man_p3": man_p3,
+        "p_a": p_a, "p_b": p_b, "p_c": p_c, "p_d": p_d,
+        "h1_manual_pts": serializable_pts
+    }
+    clean_state = {k: v for k, v in final_state.items() if v is not None}
+    
+    if clean_state != ticker_cache:
+        save_trend_cache(ticker, clean_state)
 
     if not all_filled:
         return
