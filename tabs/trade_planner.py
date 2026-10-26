@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import time
 
 from data import vlookup, to_float, get_margin, fetch_moex_candles, load_trend_cache, save_trend_cache
 from rules import lookup
@@ -199,7 +200,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг ABCD'
         ), row=1, col=1)
 
-    # --- РУЧНОЙ ЗИГЗАГ (КРАСНЫЙ) ---
     manual_points_key = f"manual_zigzag_{ticker}_H1"
     manual_pts = []
     if is_h1 and manual_points_key in st.session_state and st.session_state[manual_points_key]:
@@ -238,7 +238,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 row=1, col=1
             )
 
-    # ЛОГИКА РАСКРАСКИ ОБЪЕМОВ
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
@@ -477,6 +476,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     pts_key = f"manual_zigzag_{ticker}_H1"
     undo_key = f"undo_{ticker}_H1"
     redo_key = f"redo_{ticker}_H1"
+    debounce_key = f"debounce_{ticker}_H1"
     
     if pts_key not in st.session_state:
         cached_h1_pts = ticker_cache.get("h1_manual_pts", [])
@@ -485,6 +485,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.session_state[undo_key] = []
     if redo_key not in st.session_state:
         st.session_state[redo_key] = []
+    if debounce_key not in st.session_state:
+        st.session_state[debounce_key] = 0.0
 
     # --- СПОЙЛЕР: ТЕХНИЧЕСКАЯ АНАЛИТИКА ---
     with st.expander("📐 Техническая аналитика графика", expanded=False):
@@ -598,6 +600,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                     prev_state = st.session_state[undo_key].pop()
                                     st.session_state[redo_key].append(st.session_state[pts_key].copy())
                                     st.session_state[pts_key] = prev_state
+                                    st.session_state[debounce_key] = 0.0
                                     st.rerun()
                         with col2:
                             if st.button("➡️ Повторить", key=f"redo_btn_{ticker}"):
@@ -605,12 +608,14 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                     next_state = st.session_state[redo_key].pop()
                                     st.session_state[undo_key].append(st.session_state[pts_key].copy())
                                     st.session_state[pts_key] = next_state
+                                    st.session_state[debounce_key] = 0.0
                                     st.rerun()
                         with col3:
                             if st.button("🗑️ Очистить", key=f"clear_{ticker}_H1"):
                                 st.session_state[undo_key].append(st.session_state[pts_key].copy())
                                 st.session_state[redo_key] = []
                                 st.session_state[pts_key] = []
+                                st.session_state[debounce_key] = 0.0
                                 st.rerun()
                         with col4:
                             draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
@@ -618,72 +623,71 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                         if draw_mode:
                             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
                             
-                            if event and event["selection"]["points"]:
+                            # DEBOUNCE: обрабатываем событие только если прошло >0.5 сек с прошлого
+                            now = time.time()
+                            last_debounce = st.session_state.get(debounce_key, 0.0)
+                            
+                            if event and event["selection"]["points"] and (now - last_debounce > 0.5):
+                                st.session_state[debounce_key] = now
+                                
                                 pt = event["selection"]["points"][0]
                                 clicked_time = pd.to_datetime(pt["x"])
                                 clicked_y = pt["y"]
                                 
-                                # === ЗАЩИТА ОТ БЕСКОНЕЧНОГО ЦИКЛА ===
-                                click_id = f"{clicked_time}_{clicked_y}"
-                                last_click_key = f"last_click_{ticker}_H1"
+                                df_h1_view = df_candles.tail(150).copy()
+                                idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
+                                bar = df_h1_view.iloc[idx]
                                 
-                                if st.session_state.get(last_click_key) != click_id:
-                                    st.session_state[last_click_key] = click_id
-                                    
-                                    df_h1_view = df_candles.tail(150).copy()
-                                    idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
-                                    bar = df_h1_view.iloc[idx]
-                                    
-                                    pts = st.session_state[pts_key]
-                                    new_pts = pts.copy()
-                                    
-                                    # ПРИОРИТЕТ 1: Повторный клик по тому же бару = ФЛИП
-                                    if new_pts and new_pts[-1][0] == bar.name:
-                                        last_y = new_pts[-1][1]
-                                        if np.isclose(last_y, bar['High']):
-                                            snapped_y = float(bar['Low'])
-                                        else:
-                                            snapped_y = float(bar['High'])
-                                        new_pts[-1] = (bar.name, snapped_y)
-                                        
-                                    # ПРИОРИТЕТ 2: Первая точка
-                                    elif not new_pts:
-                                        current_price = df_h1_view.iloc[-1]['Close']
-                                        clicked_bar_mid = (bar['High'] + bar['Low']) / 2
-                                        
-                                        if clicked_bar_mid < current_price:
-                                            snapped_y = float(bar['Low'])
-                                        else:
-                                            snapped_y = float(bar['High'])
-                                            
-                                        new_pts.append((bar.name, snapped_y))
-                                        
-                                    # ПРИОРИТЕТ 3: Вторая точка
-                                    elif len(new_pts) == 1:
-                                        if clicked_y > new_pts[0][1]:
-                                            snapped_y = float(bar['High'])
-                                        else:
-                                            snapped_y = float(bar['Low'])
-                                        new_pts.append((bar.name, snapped_y))
-                                        
-                                    # ПРИОРИТЕТ 4: Третья+ точка
+                                pts = st.session_state[pts_key]
+                                new_pts = pts.copy()
+                                
+                                # ПРИОРИТЕТ 1: Повторный клик
+                                if new_pts and new_pts[-1][0] == bar.name:
+                                    last_y = new_pts[-1][1]
+                                    if np.isclose(last_y, bar['High']):
+                                        snapped_y = float(bar['Low'])
                                     else:
-                                        last_time, last_y = new_pts[-1]
-                                        last_bar = df_h1_view.loc[last_time]
-                                        is_last_high = np.isclose(last_y, last_bar['High'])
+                                        snapped_y = float(bar['High'])
+                                    new_pts[-1] = (bar.name, snapped_y)
+                                    
+                                # ПРИОРИТЕТ 2: Первая точка
+                                elif not new_pts:
+                                    current_price = df_h1_view.iloc[-1]['Close']
+                                    clicked_bar_mid = (bar['High'] + bar['Low']) / 2
+                                    
+                                    if clicked_bar_mid < current_price:
+                                        snapped_y = float(bar['Low'])
+                                    else:
+                                        snapped_y = float(bar['High'])
                                         
-                                        if is_last_high:
-                                            snapped_y = float(bar['Low'])
-                                        else:
-                                            snapped_y = float(bar['High'])
-                                            
-                                        new_pts.append((bar.name, snapped_y))
+                                    new_pts.append((bar.name, snapped_y))
+                                    
+                                # ПРИОРИТЕТ 3: Вторая точка
+                                elif len(new_pts) == 1:
+                                    if clicked_y > new_pts[0][1]:
+                                        snapped_y = float(bar['High'])
+                                    else:
+                                        snapped_y = float(bar['Low'])
+                                    new_pts.append((bar.name, snapped_y))
+                                    
+                                # ПРИОРИТЕТ 4: Третья+ точка
+                                else:
+                                    last_time, last_y = new_pts[-1]
+                                    last_bar = df_h1_view.loc[last_time]
+                                    is_last_high = np.isclose(last_y, last_bar['High'])
+                                    
+                                    if is_last_high:
+                                        snapped_y = float(bar['Low'])
+                                    else:
+                                        snapped_y = float(bar['High'])
+                                        
+                                    new_pts.append((bar.name, snapped_y))
 
-                                    if new_pts != pts:
-                                        st.session_state[undo_key].append(pts.copy())
-                                        st.session_state[redo_key] = []
-                                        st.session_state[pts_key] = new_pts
-                                        st.rerun()
+                                if new_pts != pts:
+                                    st.session_state[undo_key].append(pts.copy())
+                                    st.session_state[redo_key] = []
+                                    st.session_state[pts_key] = new_pts
+                                    st.rerun()
                         else:
                             st.plotly_chart(fig, use_container_width=True)
                             
