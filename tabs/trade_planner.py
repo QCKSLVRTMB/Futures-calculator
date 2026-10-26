@@ -52,34 +52,29 @@ def detect_trend(df):
     return "Боковик"
 
 def get_sperandeo_geometry(df, trend_direction):
-    """
-    Строит канал строго по вашему правилу (через локальные max/min).
-    Возвращает: p1_price, p2_price, p3_price, channel_data, annotations.
-    Если пробой не состоялся, channel_data будет None, но цены вернутся для полей ввода.
-    """
     if len(df) < 20: 
         return None, None, None, None, []
     
     if trend_direction == "Тренд вниз":
         # Точка 1: Глобальный максимум
         p1_idx = df['High'].idxmax()
-        p1_price = df.loc[p1_idx, 'High']
+        p1_price = float(df.loc[p1_idx, 'High'])
         
         df_after_p1 = df.loc[p1_idx:]
         if len(df_after_p1) < 5: return p1_price, None, None, None, []
         
         # Точка 2: Минимум после Точки 1
         p2_idx = df_after_p1['Low'].idxmin()
-        p2_price = df.loc[p2_idx, 'Low']
+        p2_price = float(df.loc[p2_idx, 'Low'])
         
         df_after_p2 = df.loc[p2_idx:]
         if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
         
         # Точка 3: Максимум после Точки 2
         p3_idx = df_after_p2['High'].idxmax()
-        p3_price = df.loc[p3_idx, 'High']
+        p3_price = float(df.loc[p3_idx, 'High'])
         
-        # Проверка пробоя поддержки в Точке 2
+        # Проверка пробоя
         df_after_p3 = df.loc[p3_idx:]
         is_breakout = len(df_after_p3) > 0 and df_after_p3['Low'].min() < p2_price
         
@@ -93,29 +88,27 @@ def get_sperandeo_geometry(df, trend_direction):
     elif trend_direction == "Тренд вверх":
         # Точка 1: Глобальный минимум
         p1_idx = df['Low'].idxmin()
-        p1_price = df.loc[p1_idx, 'Low']
+        p1_price = float(df.loc[p1_idx, 'Low'])
         
         df_after_p1 = df.loc[p1_idx:]
         if len(df_after_p1) < 5: return p1_price, None, None, None, []
         
         # Точка 2: Максимум после Точки 1
         p2_idx = df_after_p1['High'].idxmax()
-        p2_price = df.loc[p2_idx, 'High']
+        p2_price = float(df.loc[p2_idx, 'High'])
         
         df_after_p2 = df.loc[p2_idx:]
         if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
         
         # Точка 3: Минимум после Точки 2
         p3_idx = df_after_p2['Low'].idxmin()
-        p3_price = df.loc[p3_idx, 'Low']
+        p3_price = float(df.loc[p3_idx, 'Low'])
         
-        # Проверка пробоя сопротивления в Точке 2
+        # Проверка пробоя
         df_after_p3 = df.loc[p3_idx:]
         is_breakout = len(df_after_p3) > 0 and df_after_p3['High'].max() > p2_price
         
         if is_breakout:
-            # Для восходящего тренда: p1 и p3 - это низы, p2 - это верх.
-            # channel_data: p1 (база луча), p2 (конец луча, низ), p3 (параллель, верх)
             channel = {'p1': (p1_idx, p1_price), 'p2': (p3_idx, p3_price), 'p3': (p2_idx, p2_price)}
             ann = [(p1_idx, 'low', p1_price), (p2_idx, 'high', p2_price), (p3_idx, 'low', p3_price)]
             return p1_price, p2_price, p3_price, channel, ann
@@ -337,7 +330,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         df_d1_view = df_d1_full.tail(150).copy()
         trend_d1 = detect_trend(df_d1_view)
         
-        # Получаем авто-значения и канал
         p1_auto, p2_auto, p3_auto, auto_channel, auto_ann = get_sperandeo_geometry(df_d1_view, trend_d1)
     else:
         trend_d1 = "Боковик"
@@ -349,24 +341,28 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.markdown(f"**Тренд (D1):** {trend_d1}")
         c1, c2, c3 = st.columns(3)
         
-        man_p1 = c1.number_input("Точка 1", value=p1_auto, step=100.0, format="%.2f", key=key("man_p1"))
-        man_p2 = c2.number_input("Точка 2", value=p2_auto, step=100.0, format="%.2f", key=key("man_p2"))
-        man_p3 = c3.number_input("Точка 3", value=p3_auto, step=100.0, format="%.2f", key=key("man_p3"))
+        # Передаем value как float, чтобы избежать ошибки MixedNumericTypes
+        val1 = float(p1_auto) if p1_auto is not None else None
+        val2 = float(p2_auto) if p2_auto is not None else None
+        val3 = float(p3_auto) if p3_auto is not None else None
+        
+        man_p1 = c1.number_input("Точка 1", value=val1, step=100.0, format="%.2f", key=key("man_p1"))
+        man_p2 = c2.number_input("Точка 2", value=val2, step=100.0, format="%.2f", key=key("man_p2"))
+        man_p3 = c3.number_input("Точка 3", value=val3, step=100.0, format="%.2f", key=key("man_p3"))
         
         final_channel = auto_channel
         final_annotations = auto_ann
         
-        # Если поля заполнены (вручную или авто), пересчитываем с учетом пробоя
         if man_p1 is not None and man_p2 is not None and man_p3 is not None:
             def find_bar(price, start_time, is_high):
                 sub = df_d1_view.loc[start_time:]
                 if sub.empty: return None
                 if is_high:
                     idx = (sub['High'] - price).abs().idxmin()
-                    return (idx, sub.loc[idx, 'High'])
+                    return (idx, float(sub.loc[idx, 'High']))
                 else:
                     idx = (sub['Low'] - price).abs().idxmin()
-                    return (idx, sub.loc[idx, 'Low'])
+                    return (idx, float(sub.loc[idx, 'Low']))
                     
             if trend_d1 == "Тренд вниз":
                 b1 = find_bar(man_p1, df_d1_view.index[0], True)
@@ -389,7 +385,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 
                 if b1 and b2 and b3:
                     if df_d1_view.loc[b3[0]:, 'High'].max() > b2[1]:
-                        final_channel = {'p1': b1, 'p2': b3, 'p3': b2} # Для аптренда: b1,b3 - лоу, b2 - хай
+                        final_channel = {'p1': b1, 'p2': b3, 'p3': b2}
                         final_annotations = [(b1[0], 'low', b1[1]), (b2[0], 'high', b2[1]), (b3[0], 'low', b3[1])]
                     else:
                         st.warning("⚠️ Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
