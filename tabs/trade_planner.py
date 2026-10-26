@@ -142,29 +142,53 @@ def analyze_manual_zigzag(pts, df):
         
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
+            
+            # Расчет отката от B до C
+            retr_delta = b_price - c_price
+            df_pullback = df.loc[b_time:c_time]
+            retr_bars = len(df_pullback)
+            retr_vol = df_pullback['Volume'].sum()
+            
             breakouts.append({
                 "trend": "up",
                 "resistance_time": b_time,
                 "resistance_price": b_price,
+                "pullback_time": c_time,
+                "pullback_price": c_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
                 "delta": d_price - b_price,
                 "bars": bars,
-                "volume": vol
+                "volume": vol,
+                "retr_delta": retr_delta,
+                "retr_bars": retr_bars,
+                "retr_volume": retr_vol
             })
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
+            
+            # Расчет отката от B до C
+            retr_delta = c_price - b_price
+            df_pullback = df.loc[b_time:c_time]
+            retr_bars = len(df_pullback)
+            retr_vol = df_pullback['Volume'].sum()
+            
             breakouts.append({
                 "trend": "down",
                 "resistance_time": b_time,
                 "resistance_price": b_price,
+                "pullback_time": c_time,
+                "pullback_price": c_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
                 "delta": b_price - d_price,
                 "bars": bars,
-                "volume": vol
+                "volume": vol,
+                "retr_delta": retr_delta,
+                "retr_bars": retr_bars,
+                "retr_volume": retr_vol
             })
             
     return breakouts
@@ -223,9 +247,13 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         breakouts = analyze_manual_zigzag(manual_pts, df_chart)
         
         for brk in breakouts:
-            bg_color = "#198754" if brk['trend'] == "up" else "#dc3545"
+            breakout_bg = "rgba(13, 110, 253, 0.9)"   # Синий для пробоев
+            pullback_bg = "rgba(253, 126, 20, 0.9)"   # Оранжевый для откатов
+            line_color_breakout = "#0d6efd"
+            line_color_pullback = "#fd7e14"
             
-            metrics_text = (
+            # === ПРОБОЙ (Синий) ===
+            breakout_text = (
                 f"Δ: {brk['delta']:.{decimals}f}<br>"
                 f"Бар: {brk['bars']}<br>"
                 f"Vol: {brk['volume']:,.0f}"
@@ -234,60 +262,103 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             # Плашка у пика (D, F, H)
             fig.add_annotation(
                 x=brk['peak_time'], y=brk['peak_price'],
-                text=metrics_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=bg_color,
+                text=breakout_text,
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
                 ax=40, ay=-40,
-                bgcolor="rgba(255, 255, 255, 0.8)", 
-                font=dict(color="black", size=10),
-                bordercolor=bg_color, borderwidth=1, borderpad=3,
+                bgcolor=breakout_bg, 
+                font=dict(color="white", size=10),
+                bordercolor="black", borderwidth=1, borderpad=3,
                 row=1, col=1
             )
             
             # Плашка у сопротивления (B, D, F)
             fig.add_annotation(
                 x=brk['resistance_time'], y=brk['resistance_price'],
-                text=metrics_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="gray",
+                text=breakout_text,
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
                 ax=-40, ay=40,
-                bgcolor="rgba(255, 255, 255, 0.8)", 
-                font=dict(color="black", size=10),
-                bordercolor="gray", borderwidth=1, borderpad=3,
+                bgcolor=breakout_bg, 
+                font=dict(color="white", size=10),
+                bordercolor="black", borderwidth=1, borderpad=3,
                 row=1, col=1
             )
 
-            # 1. СИНИЙ ГОРИЗОНТАЛЬНЫЙ ОТРЕЗОК (от сопротивления до бара пробоя)
+            # 1. Горизонталь от сопротивления до бара пробоя
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['resistance_price'],
-                line=dict(color="blue", width=2), 
+                line=dict(color=line_color_breakout, width=2), 
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 2. СИНЯЯ ВЕРТИКАЛЬНАЯ ЛИНИЯ (от бара пробоя до уровня пика)
+            # 2. Вертикаль от бара пробоя до пика
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['peak_price'],
-                line=dict(color="blue", width=2, dash="dot"), 
+                line=dict(color=line_color_breakout, width=2, dash="dot"), 
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 3. СОЕДИНИТЕЛЬНАЯ ЛИНИЯ (от вершины вертикали к точке пика)
+            # 3. Горизонталь от вертикали к пику
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['peak_price'], 
                 x1=brk['peak_time'], y1=brk['peak_price'],
-                line=dict(color="blue", width=2, dash="dot"), 
+                line=dict(color=line_color_breakout, width=2, dash="dot"), 
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 4. ТЕКСТ Δ СЛЕВА ОТ ВЕРТИКАЛЬНОЙ ЛИНИИ
-            mid_y = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
+            # Текст пробоя
+            mid_y_breakout = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
             fig.add_annotation(
-                x=brk['breakout_time'], y=mid_y,
+                x=brk['breakout_time'], y=mid_y_breakout,
                 text=f"Δ: {brk['delta']:.{decimals}f}",
-                showarrow=False,
-                xanchor="right",
-                xshift=-5,
-                font=dict(color="blue", size=11, weight="bold"),
+                showarrow=False, xanchor="right", xshift=-5,
+                font=dict(color=line_color_breakout, size=11, weight="bold"),
+                row=1, col=1
+            )
+
+            # === ОТКАТ (Оранжевый) ===
+            pullback_text = (
+                f"Δ: {brk['retr_delta']:.{decimals}f}<br>"
+                f"Бар: {brk['retr_bars']}<br>"
+                f"Vol: {brk['retr_volume']:,.0f}"
+            )
+            
+            # Плашка у отката (C, E, G)
+            fig.add_annotation(
+                x=brk['pullback_time'], y=brk['pullback_price'],
+                text=pullback_text,
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
+                ax=0, ay=40,
+                bgcolor=pullback_bg, 
+                font=dict(color="white", size=10),
+                bordercolor="black", borderwidth=1, borderpad=3,
+                row=1, col=1
+            )
+
+            # 4. Вертикаль от бара пробоя вниз до уровня отката
+            fig.add_shape(
+                type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
+                x1=brk['breakout_time'], y1=brk['pullback_price'],
+                line=dict(color=line_color_pullback, width=2, dash="dot"), 
+                xref="x", yref="y", row=1, col=1
+            )
+
+            # 5. Горизонталь от вертикали до точки отката
+            fig.add_shape(
+                type="line", x0=brk['breakout_time'], y0=brk['pullback_price'], 
+                x1=brk['pullback_time'], y1=brk['pullback_price'],
+                line=dict(color=line_color_pullback, width=2), 
+                xref="x", yref="y", row=1, col=1
+            )
+
+            # Текст отката
+            mid_y_pullback = brk['pullback_price'] + (brk['resistance_price'] - brk['pullback_price']) / 2
+            fig.add_annotation(
+                x=brk['breakout_time'], y=mid_y_pullback,
+                text=f"Δ: {brk['retr_delta']:.{decimals}f}",
+                showarrow=False, xanchor="right", xshift=-5,
+                font=dict(color=line_color_pullback, size=11, weight="bold"),
                 row=1, col=1
             )
 
@@ -741,16 +812,18 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                             
                         if breakouts:
                             st.markdown("---")
-                            st.markdown("#### 📈 Анализ пробоев структуры H1")
+                            st.markdown("#### 📈 Анализ пробоев и откатов H1")
                             
                             df_metrics = pd.DataFrame([
                                 {
                                     "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
-                                    "Уровень сопротивления": b["resistance_price"],
+                                    "Уровень сопр.": b["resistance_price"],
+                                    "Откат": b["pullback_price"],
                                     "Пик (D)": b["peak_price"],
-                                    "Δ (пункты)": b["delta"],
-                                    "Баров от пробоя": b["bars"],
-                                    "Объем": b["volume"]
+                                    "Δ Пробоя": b["delta"],
+                                    "Δ Отката": b["retr_delta"],
+                                    "Бар. (пробой/откат)": f"{b['bars']} / {b['retr_bars']}",
+                                    "Объем (пробой/откат)": f"{b['volume']:,.0f} / {b['retr_volume']:,.0f}"
                                 }
                                 for b in breakouts
                             ])
@@ -760,10 +833,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 use_container_width=True, 
                                 hide_index=True,
                                 column_config={
-                                    "Уровень сопротивления": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Откат": st.column_config.NumberColumn(format=f"%.{decimals}f"),
                                     "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                    "Δ (пункты)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                    "Объем": st.column_config.NumberColumn(format="%d")
+                                    "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Δ Отката": st.column_config.NumberColumn(format=f"%.{decimals}f"),
                                 }
                             )
                     else:
