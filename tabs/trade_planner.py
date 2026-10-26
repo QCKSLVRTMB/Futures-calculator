@@ -240,7 +240,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                     bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
                 )
 
-    # --- ЛУЧИ КАНАЛА (используем add_shape для идеальной геометрии) ---
+    # --- ЛУЧИ КАНАЛА (с адаптивным продлением) ---
     if channel_data:
         try:
             x1, y1 = channel_data['p1']
@@ -258,30 +258,27 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             dt_12 = time2 - time1 if time2 != time1 else 1
             slope_time = (y2 - y1) / dt_12
             
-            # Конец луча: 10 дней вперед от последнего бара
-            dt_end = df_chart.index[-1] + pd.Timedelta(days=10)
+            # НОВОЕ: Адаптивное продление лучей вправо
+            if is_intraday:
+                # На H1 и M10 продлеваем недалеко, чтобы бары оставались широкими
+                time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
+            else:
+                # На D1 продлеваем на 10 дней
+                time_buffer = pd.Timedelta(days=10)
+                
+            dt_end = df_chart.index[-1] + time_buffer
             
             y_ray1_end = slope_time * (dt_end.timestamp() - time1) + y1
             y_ray2_end = slope_time * (dt_end.timestamp() - time3) + y3
 
-            # Рисуем луч 1
             fig.add_shape(
-                type="line",
-                x0=x1_ts, y0=y1,
-                x1=dt_end, y1=y_ray1_end,
-                line=dict(color="blue", width=2),
-                xref="x", yref="y",
-                row=1, col=1
+                type="line", x0=x1_ts, y0=y1, x1=dt_end, y1=y_ray1_end,
+                line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
             )
             
-            # Рисуем луч 2
             fig.add_shape(
-                type="line",
-                x0=x3_ts, y0=y3,
-                x1=dt_end, y1=y_ray2_end,
-                line=dict(color="blue", width=2),
-                xref="x", yref="y",
-                row=1, col=1
+                type="line", x0=x3_ts, y0=y3, x1=dt_end, y1=y_ray2_end,
+                line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
             )
             
         except Exception as e:
@@ -299,8 +296,14 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
+    # НОВОЕ: Ограничиваем ось X, чтобы бары не сжимались
     if len(df_chart) > 1:
-        x_range = [df_chart.index[0] - pd.Timedelta(days=1), df_chart.index[-1] + pd.Timedelta(days=10)]
+        if is_intraday:
+            time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
+        else:
+            time_buffer = pd.Timedelta(days=10)
+            
+        x_range = [df_chart.index[0] - pd.Timedelta(hours=4), df_chart.index[-1] + time_buffer]
     else:
         x_range = None
 
