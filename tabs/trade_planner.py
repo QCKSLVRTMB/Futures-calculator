@@ -38,10 +38,8 @@ def detect_trend(df):
     min_pos = df.index.get_loc(min_idx)
     max_pos = df.index.get_loc(max_idx)
     
-    # Если минимум был раньше максимума и цена держится выше минимума
     if min_pos < max_pos and current_price > df['Low'].iloc[-5:].mean():
         return "Тренд вверх"
-    # Если максимум был раньше минимума и цена держится ниже максимума
     if max_pos < min_pos and current_price < df['High'].iloc[-5:].mean():
         return "Тренд вниз"
         
@@ -97,8 +95,8 @@ def get_zigzag_pivots(df, deviation_pct=0.05):
 
 def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
     """
-    Строит канал и возвращает координаты плашек, отталкиваясь 
-    от абсолютного экстремума на видимом участке графика.
+    Строит канал и возвращает координаты плашек. 
+    Для 2-й точки ищет самый свежий (последний) откат, чтобы канал был актуальным.
     """
     pivots = get_zigzag_pivots(df, deviation_pct=deviation_pct)
     if len(pivots) < 3:
@@ -108,7 +106,7 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
     annotations = []
 
     if trend_direction == "Тренд вверх":
-        # 1. Ищем абсолютный минимум на видимом участке
+        # 1. Ищем глобальный минимум (L1)
         l1_idx = None
         min_low = float('inf')
         for i, p in enumerate(pivots):
@@ -117,28 +115,27 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 l1_idx = i
         
         if l1_idx is not None:
-            # 2. Ищем ПОСЛЕДНИЙ минимум, который выше первого (Higher Low)
-            # Убрали break, чтобы находить самый свежий минимум
+            # 2. Ищем САМЫЙ ПОСЛЕДНИЙ минимум (L2), который выше L1
             l2_idx = None
-            for i in range(l1_idx + 1, len(pivots)):
+            for i in range(len(pivots) - 1, l1_idx, -1):
                 if pivots[i][1] == 'low' and pivots[i][2] > pivots[l1_idx][2]:
                     l2_idx = i
+                    break # Нашли самый свежий откат
             
             if l2_idx is not None:
-                # 3. Ищем максимум между ними (Highest High)
+                # 3. Ищем максимум (H1) между L1 и L2
                 highs = [p for p in pivots[l1_idx+1:l2_idx] if p[1] == 'high']
                 if highs:
                     h1 = max(highs, key=lambda x: x[2])
                     channel_data = {
-                        'p1': (pivots[l1_idx][0], pivots[l1_idx][2]), # База луча (L1)
-                        'p2': (pivots[l2_idx][0], pivots[l2_idx][2]), # 2-я точка луча (L2)
-                        'p3': (h1[0], h1[2])                          # Параллель (H1)
+                        'p1': (pivots[l1_idx][0], pivots[l1_idx][2]),
+                        'p2': (pivots[l2_idx][0], pivots[l2_idx][2]),
+                        'p3': (h1[0], h1[2])
                     }
-                    # Плашки для отрисовки
                     annotations = [pivots[l1_idx], h1, pivots[l2_idx]]
 
     elif trend_direction == "Тренд вниз":
-        # 1. Ищем абсолютный максимум на видимом участке
+        # 1. Ищем глобальный максимум (H1)
         h1_idx = None
         max_high = -float('inf')
         for i, p in enumerate(pivots):
@@ -147,26 +144,25 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 h1_idx = i
         
         if h1_idx is not None:
-            # 2. Ищем ПОСЛЕДНИЙ максимум, который ниже первого (Lower High)
+            # 2. Ищем САМЫЙ ПОСЛЕДНИЙ максимум (H2), который ниже H1
             h2_idx = None
-            for i in range(h1_idx + 1, len(pivots)):
+            for i in range(len(pivots) - 1, h1_idx, -1):
                 if pivots[i][1] == 'high' and pivots[i][2] < pivots[h1_idx][2]:
                     h2_idx = i
+                    break # Нашли самый свежий откат
             
             if h2_idx is not None:
-                # 3. Ищем минимум между ними (Lowest Low)
+                # 3. Ищем минимум (L1) между H1 и H2
                 lows = [p for p in pivots[h1_idx+1:h2_idx] if p[1] == 'low']
                 if lows:
                     l1 = min(lows, key=lambda x: x[2])
                     channel_data = {
-                        'p1': (pivots[h1_idx][0], pivots[h1_idx][2]), # База луча (H1)
-                        'p2': (pivots[h2_idx][0], pivots[h2_idx][2]), # 2-я точка луча (H2)
-                        'p3': (l1[0], l1[2])                          # Параллель (L1)
+                        'p1': (pivots[h1_idx][0], pivots[h1_idx][2]),
+                        'p2': (pivots[h2_idx][0], pivots[h2_idx][2]),
+                        'p3': (l1[0], l1[2])
                     }
-                    # Плашки для отрисовки
                     annotations = [pivots[h1_idx], l1, pivots[h2_idx]]
 
-    # Сортируем плашки по времени, чтобы они шли по порядку
     annotations.sort(key=lambda x: x[0])
     return channel_data, annotations
 
@@ -418,7 +414,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
-                # Рисуем канал, плашки и тренд ТОЛЬКО для дневного графика
                 is_d1 = (tf_name == "D1")
                 
                 fig = draw_chart(
