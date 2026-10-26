@@ -33,7 +33,7 @@ ASSET_BA_MAP = {
 
 # ============ ЕДИНЫЙ ФОРМАТ ЧИСЕЛ ============
 def _fmt_money(v):
-    """Денежный формат: 19747,62 ₽ (без разделителей тысяч, запятая, 2 знака)"""
+    """Денежный формат: 19747,62 ₽"""
     try:
         return f"{float(v):.2f}".replace(".", ",") + " ₽"
     except Exception:
@@ -41,7 +41,7 @@ def _fmt_money(v):
 
 
 def _fmt_price(v):
-    """Цена: 19747,62 (без разделителей тысяч, запятая, 2 знака)"""
+    """Цена: 19747,62"""
     try:
         return f"{float(v):.2f}".replace(".", ",")
     except Exception:
@@ -49,7 +49,7 @@ def _fmt_price(v):
 
 
 def _fmt_int(v):
-    """Целое число: 19748 (без разделителей)"""
+    """Целое число: 19748"""
     try:
         return f"{int(round(float(v)))}"
     except Exception:
@@ -57,7 +57,7 @@ def _fmt_int(v):
 
 
 def _fmt_step(v):
-    """Шаг цены: 0,01 / 1 / 10 — без хвостовых нулей, запятая"""
+    """Шаг цены: 0,01 / 1 / 10"""
     try:
         v = float(v)
         if v == int(v):
@@ -69,7 +69,6 @@ def _fmt_step(v):
 
 
 def _classify_ba_type(group, asset_code):
-    """Тип БА: Индекс / Акция / Валюта / Товар / Ставка / Фонд / Прочее."""
     g = str(group).lower() if group else ""
     a = str(asset_code).upper() if asset_code else ""
 
@@ -85,26 +84,66 @@ def _classify_ba_type(group, asset_code):
         return "Ставка"
     if "фонд" in g or "fund" in g:
         return "Фонд"
-
     if a in ASSET_BA_MAP:
         return ASSET_BA_MAP[a]
-
     return "Прочее"
 
 
 def _classify_futures_type(delivery_type, group, asset_code):
-    """Тип фьючерсов: Поставочный / Расчётный."""
     dt = str(delivery_type).lower() if delivery_type else ""
-
     if "deliver" in dt or "постав" in dt:
         return "Поставочный"
     if "cash" in dt or "расчет" in dt or "settle" in dt or "безнал" in dt:
         return "Расчётный"
-
     ba_type = _classify_ba_type(group, asset_code)
     if ba_type in ("Акция", "Товар", "Фонд"):
         return "Поставочный"
     return "Расчётный"
+
+
+# ============ КОЛОНКИ: ПОРЯДОК / ШИРИНЫ / КОМПАКТ ============
+ALL_COLUMNS = [
+    "Тикер", "Краткое наименование", "Тип БА", "Тип фьючерсов",
+    "Текущая цена", "Стоимость контракта",
+    "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
+    "Доступных лотов", "Шаг цены", "Дата экспирации", "Код актива",
+    "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
+    "Расчетная цена", "Предыдущая цена", "Дата",
+    "Комиссия на 1 сделку", "Комиссия на адресную сделку", "Клиринговая комиссия",
+]
+
+HIDDEN_IN_COMPACT = [
+    "ГО (ISS sec)",           # дублирует ГО LONG/SHORT
+    "Расчетная цена",
+    "Предыдущая цена",
+    "Клиринговая комиссия",
+    "Стоимость шага цены",
+    "Лот",
+    "Открытых позиций",
+    "Комиссия на адресную сделку",
+]
+
+# Пиксельные ширины для компактного вида — суммарно ~1390 px
+COMPACT_WIDTHS = {
+    "Тикер": 65,
+    "Краткое наименование": 130,
+    "Тип БА": 55,
+    "Тип фьючерсов": 75,
+    "Текущая цена": 85,
+    "Стоимость контракта": 90,
+    "ГО LONG": 80,
+    "ГО SHORT": 80,
+    "ГО (min)": 80,
+    "Макс. контрактов": 65,
+    "Доступных лотов": 60,
+    "Шаг цены": 55,
+    "Дата экспирации": 95,
+    "Код актива": 50,
+    "Верхний лимит": 80,
+    "Нижний лимит": 80,
+    "Дата": 105,
+    "Комиссия на 1 сделку": 75,
+}
 
 
 def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР", commission="Т-Инвестиции"):
@@ -220,7 +259,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             f"Источник ГО: Google Sheets / INITIALMARGIN"
         )
 
-    # ============ ФИЛЬТРЫ (ряд 1: 3 колонки) ============
+    # ============ ФИЛЬТРЫ (ряд 1) ============
     f1, f2, f3 = st.columns([2, 2, 2])
     with f1:
         search = st.text_input("Поиск по тикеру / имени", "", key="scr_search")
@@ -239,7 +278,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             help="Поставочный / Расчётный. Можно выбрать несколько",
         )
 
-    # ============ ФИЛЬТРЫ (ряд 2: 3 колонки) ============
+    # ============ ФИЛЬТРЫ (ряд 2) ============
     f1, f2, f3 = st.columns([2, 2, 2])
     with f1:
         assets = sorted(df["ASSETCODE"].dropna().unique().tolist())
@@ -354,16 +393,37 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "PREVSETTLEPRICE": "Расчетная цена", "PREVPRICE": "Предыдущая цена",
         "Updated": "Дата", "Commission_1": "Комиссия на 1 сделку",
         "Commission_addr": "Комиссия на адресную сделку", "Commission_clear": "Клиринговая комиссия"
-    })[[
-        "Тикер", "Краткое наименование", "Тип БА", "Тип фьючерсов",
-        "Текущая цена", "Стоимость контракта",
-        "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
-        "Доступных лотов", "Шаг цены", "Дата экспирации", "Код актива",
-        "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
-        "Расчетная цена", "Предыдущая цена", "Дата",
-        "Комиссия на 1 сделку", "Комиссия на адресную сделку", "Клиринговая комиссия"
-    ]]
+    })[ALL_COLUMNS]
 
+    # ============ ТУМБЛЕР «КОМПАКТНЫЙ ВИД» ============
+    col_toggle, col_info = st.columns([1, 3])
+    with col_toggle:
+        compact_view = st.toggle(
+            "Компактный вид",
+            value=True,
+            key="scr_compact",
+            help="Скрывает второстепенные колонки, чтобы всё помещалось на экране.",
+        )
+    with col_info:
+        if compact_view:
+            visible_count = len([c for c in ALL_COLUMNS if c not in HIDDEN_IN_COMPACT])
+            st.caption(f"Показано **{visible_count} из {len(ALL_COLUMNS)}** колонок · отключите тумблер, чтобы увидеть все данные")
+        else:
+            st.caption(f"Показаны все **{len(ALL_COLUMNS)}** колонок · при нехватке ширины используйте горизонтальный скролл")
+
+    # Фильтруем колонки под режим
+    if compact_view:
+        visible_columns = [c for c in ALL_COLUMNS if c not in HIDDEN_IN_COMPACT]
+    else:
+        visible_columns = list(ALL_COLUMNS)
+
+    out_view = out[visible_columns].copy()
+
+    # В компактном виде обрезаем длинные имена (tooltip покажет полное значение при наведении)
+    if compact_view and "Краткое наименование" in out_view.columns:
+        out_view["Краткое наименование"] = out_view["Краткое наименование"].astype(str).str[:20]
+
+    # ============ СТИЛИ СТРОК ============
     def _row_style(row):
         if row["Тикер"] in main_tickers:
             return ["background-color: #198754; color: white; font-weight: bold"] * len(row)
@@ -371,45 +431,87 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             return ["background-color: #f8d7da; color: #842029"] * len(row)
         return [""] * len(row)
 
-    styled = out.style.apply(_row_style, axis=1).format({
-        # ---- ДЕНЬГИ ----
+    # ============ ФОРМАТЫ (только для присутствующих колонок) ============
+    format_map = {
+        # деньги
         "Стоимость контракта": _fmt_money,
         "ГО (ISS sec)":        _fmt_money,
         "ГО LONG":             _fmt_money,
         "ГО SHORT":            _fmt_money,
         "ГО (min)":            _fmt_money,
         "Стоимость шага цены": _fmt_money,
-        "Комиссия на 1 сделку":      _fmt_money,
+        "Комиссия на 1 сделку":        _fmt_money,
         "Комиссия на адресную сделку": _fmt_money,
-        "Клиринговая комиссия":      _fmt_money,
-        # ---- ЦЕНЫ ----
-        "Текущая цена":   _fmt_price,
-        "Верхний лимит":  _fmt_price,
-        "Нижний лимит":   _fmt_price,
-        "Расчетная цена": _fmt_price,
+        "Клиринговая комиссия":        _fmt_money,
+        # цены
+        "Текущая цена":    _fmt_price,
+        "Верхний лимит":   _fmt_price,
+        "Нижний лимит":    _fmt_price,
+        "Расчетная цена":  _fmt_price,
         "Предыдущая цена": _fmt_price,
-        # ---- ЦЕЛЫЕ ----
+        # целые
         "Макс. контрактов":  _fmt_int,
         "Доступных лотов":   _fmt_int,
         "Открытых позиций":  _fmt_int,
         "Лот":               _fmt_int,
-        # ---- ШАГ ----
+        # шаг
         "Шаг цены": _fmt_step,
-    }, na_rep="—")
+    }
+    format_map = {k: v for k, v in format_map.items() if k in out_view.columns}
+
+    styled = out_view.style.apply(_row_style, axis=1).format(format_map, na_rep="—")
+
+    # ============ КОНФИГ КОЛОНОК (ширины в пикселях) ============
+    def _width(col):
+        return COMPACT_WIDTHS.get(col, "medium" if col == "Краткое наименование" else "small")
+
+    column_config = {}
+    for col in out_view.columns:
+        if col == "Дата":
+            column_config[col] = st.column_config.DatetimeColumn("Дата", width=_width(col), format="DD.MM.YYYY HH:mm")
+        elif col == "Тип БА":
+            column_config[col] = st.column_config.TextColumn("Тип БА", width=_width(col))
+        elif col == "Тип фьючерсов":
+            column_config[col] = st.column_config.TextColumn("Тип фьючерсов", width=_width(col))
+        elif col == "Краткое наименование":
+            column_config[col] = st.column_config.TextColumn("Наименование", width=_width(col))
+        elif col == "ГО LONG":
+            column_config[col] = st.column_config.TextColumn("ГО LONG", width=_width(col), help=f"ГО на покупку по уровню {margin_type}")
+        elif col == "ГО SHORT":
+            column_config[col] = st.column_config.TextColumn("ГО SHORT", width=_width(col), help=f"ГО на продажу по уровню {margin_type}")
+        elif col == "ГО (min)":
+            column_config[col] = st.column_config.TextColumn("ГО (min)", width=_width(col), help="min(ГО LONG, ГО SHORT) — используется для расчёта")
+        elif col == "Макс. контрактов":
+            column_config[col] = st.column_config.TextColumn("Макс.", width=_width(col), help="Депозит / ГО (min) — сколько контрактов помещается")
+        elif col == "Доступных лотов":
+            column_config[col] = st.column_config.TextColumn("Лотов", width=_width(col))
+        elif col == "Открытых позиций":
+            column_config[col] = st.column_config.TextColumn("ОП", width=_width(col), help="Открытый интерес")
+        elif col == "Шаг цены":
+            column_config[col] = st.column_config.TextColumn("Шаг", width=_width(col))
+        elif col == "Код актива":
+            column_config[col] = st.column_config.TextColumn("Актив", width=_width(col))
+        elif col == "Верхний лимит":
+            column_config[col] = st.column_config.TextColumn("Верх. лимит", width=_width(col))
+        elif col == "Нижний лимит":
+            column_config[col] = st.column_config.TextColumn("Ниж. лимит", width=_width(col))
+        elif col == "Комиссия на 1 сделку":
+            column_config[col] = st.column_config.TextColumn("Комиссия", width=_width(col), help="Комиссия на 1 сделку (тариф из sidebar)")
+        elif col == "Комиссия на адресную сделку":
+            column_config[col] = st.column_config.TextColumn("Адресная", width=_width(col))
+        elif col == "Клиринговая комиссия":
+            column_config[col] = st.column_config.TextColumn("Клиринг", width=_width(col))
+        elif col == "Дата экспирации":
+            column_config[col] = st.column_config.TextColumn("Экспирация", width=_width(col))
+        else:
+            column_config[col] = st.column_config.TextColumn(col, width=_width(col))
 
     st.dataframe(
-        styled, use_container_width=True, hide_index=True, height=800,
-        column_config={
-            "Тикер": st.column_config.TextColumn(width="small"),
-            "Краткое наименование": st.column_config.TextColumn(width="medium"),
-            "Тип БА": st.column_config.TextColumn(width="small"),
-            "Тип фьючерсов": st.column_config.TextColumn(width="small"),
-            "Дата": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
-            "ГО LONG": st.column_config.NumberColumn(help=f"ГО на покупку по уровню {margin_type}"),
-            "ГО SHORT": st.column_config.NumberColumn(help=f"ГО на продажу по уровню {margin_type}"),
-            "ГО (min)": st.column_config.NumberColumn(help="min(ГО LONG, ГО SHORT) — используется для расчёта"),
-            "Макс. контрактов": st.column_config.NumberColumn(help="Депозит / ГО (min)"),
-        },
+        styled,
+        use_container_width=True,
+        hide_index=True,
+        height=800,
+        column_config=column_config,
     )
 
     st.caption(
