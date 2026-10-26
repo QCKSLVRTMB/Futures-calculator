@@ -4,7 +4,7 @@ import streamlit as st
 
 import rules
 from core import charts, state
-from core.calc import get_instrument, plan_trade
+from core.calc import get_instrument, plan_trade, find_volume_clusters, analyze_zigzag_breakouts
 from core.config import DEFAULT_TOOLS, DIRECTIONS, TF_SPEC, TOOLS, TRADE_TYPES, TREND_VALUES
 from core.market import fetch_moex_candles
 from ui.theme import cards, fragment, money, num, seg
@@ -14,7 +14,7 @@ def render_trade_planner(*, ticker, iss_df=None, ims_df=None, go_df=None, api_df
     tdata = state.ticker(ticker)
     _header(inst, tdata, mobile)
     _market_block(ticker, tdata, strategy, mobile)
-    _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission)
+    _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy)
     _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mobile)
 
 def _header(inst, tdata, mobile):
@@ -53,12 +53,33 @@ def _market_block(ticker, tdata, strategy, mobile):
     state.autosave()
 
 @fragment
-def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission):
+def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
     st.markdown("#### 📈 Разметка графика")
+    
+    # 1. Настройки инструментов
     c1, c2 = st.columns([1, 1])
     with c1: tf = seg("Таймфрейм", list(TF_SPEC), key=f"tf_{ticker}", default="H1", fmt=lambda x: TF_SPEC[x]["label"]) or "H1"
-    with c2: tool = seg("Инструмент", list(TOOLS), key=f"tool_{ticker}_{tf}", default=DEFAULT_TOOLS.get(tf, "zigzag"), fmt=lambda x: TOOLS[x]) or "zigzag"
+    
+    # Логика распределения инструментов по ТФ (как в старом коде)
+    if tf == "D1":
+        available_tools = ["channel", "fib"]
+        default_tool = "channel"
+    elif tf == "H1":
+        available_tools = ["zigzag", "fib", "levels"]
+        default_tool = "zigzag"
+    else:
+        available_tools = ["zigzag", "levels"]
+        default_tool = "zigzag"
+        
+    with c2: tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf}", default=default_tool, fmt=lambda x: TOOLS[x]) or default_tool
 
+    # 2. Переключатели видимости
+    c_t1, c_t2, c_t3 = st.columns(3)
+    show_rr = c_t1.toggle("Зоны RR", value=True, key=f"show_rr_{ticker}_{tf}")
+    show_clusters = c_t2.toggle("Кластеры", value=False, key=f"show_clusters_{ticker}_{tf}")
+    show_breakouts = c_t3.toggle("Пробои/откаты", value=True, key=f"show_breakouts_{ticker}_{tf}") if tf == "H1" else False
+
+    # 3. Загрузка данных
     spec = TF_SPEC[tf]
     with st.spinner("Загрузка свечей…"):
         df = fetch_moex_candles(ticker, spec["interval"], spec["days"])
@@ -69,6 +90,7 @@ def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     bars = st.slider("Свечей на экране", 40, min(len(df), 600), min(spec["bars"], len(df)), step=20, key=f"bars_{ticker}_{tf}")
     view = df.tail(bars)
 
+    # 4. Обработка кликов
     chart_key = f"chart_{ticker}_{tf}"
     click = charts.capture_click(chart_key)
     if click:
@@ -84,14 +106,47 @@ def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
         st.session_state[f"last_click_{ticker}"] = y
         state.autosave(force=True)
 
+    # 5. Построение графика
     fig = charts.build_figure(view, tf=tf, mobile=mobile, title=f"{ticker} · {spec['label']}")
     x_left, x_right = view.index[0], view.index[-1]
     tools_data = tdata["charts"][tf]
+
+    # Кластеры (только для H1)
+    if show_clusters and tf == "H1":
+        clusters = find_volume_clusters(view)
+        charts.draw_clusters(fig, clusters, x_left, x_right)
+        st.caption(f"Аномальных объемных баров: {len(clusters)}")
+
+    # Базовые инструменты
     charts.draw_levels(fig, tools_data["levels"], x_left, x_right)
     charts.draw_channel(fig, tools_data["channel"], x_right)
     charts.draw_fib(fig, tools_data["fib"], x_left, x_right)
-    charts.draw_zigzag(fig, tools_data["zigzag"])
+    
+    # Зигзаг с разными цветами
+    zigzag_color = "#26a69a" if tf == "H1" else "#ef5350"
+    zigzag_name = "Тенденция (H1)" if tf == "H1" else "Зигзаг (M10)"
+    charts.draw_zigzag(fig, tools_data["zigzag"], color=zigzag_color, name=zigzag_name)
 
+    # Зоны RR и Пробои (только для H1 и если есть точки)
+    if tf == "H1" and tools_data["zigzag"]:
+        if show_rr:
+            charts.draw_rr_zones(fig, tools_data["zigzag"], strategy)
+        
+        if show_breakouts:
+            breakouts = analyze_zigzag_breakouts(tools_data["zigzag"], view)
+            charts.draw_breakouts(fig, breakouts)
+            
+            if breakouts:
+                st.markdown("##### Анализ пробоев и откатов H1")
+                df_metrics = pd.DataFrame([{
+                    "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
+                    "Δ Пробоя": b["breakout_mag"], "Бар/Vol": f"{b['bars']} / {b['volume']:,.0f}",
+                    "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
+                    "Бар/Vol (откат)": f"{b['retr_bars']} / {b['retr_vol']:,.0f}"
+                } for b in breakouts])
+                st.dataframe(df_metrics, use_container_width=True, hide_index=True)
+
+    # Сделка на графике
     deal = tdata["deal"]
     if deal.get("sl") or deal.get("entries"):
         plan = plan_trade(inst, direction=deal["direction"], entries=deal["entries"], sl=deal.get("sl"), tp=deal.get("tp"), deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
@@ -100,6 +155,7 @@ def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
     st.caption("Тап по свече = точка (привязка к ближайшему High/Low/Close). Двойной тап — сброс масштаба.")
 
+    # Кнопки управления
     b1, b2, b3, b4 = st.columns(4)
     cur = tools_data[tool]
     if b1.button("↩︎ Отменить", key=f"undo_{ticker}_{tf}_{tool}", use_container_width=True, disabled=not cur):
@@ -132,7 +188,6 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
     deal = tdata["deal"]
     last_click = st.session_state.get(f"last_click_{ticker}")
 
-    # Синхронизация SL из стейта (если поменяли снаружи)
     if f"sl_{ticker}" not in st.session_state and deal.get("sl") is not None:
         st.session_state[f"sl_{ticker}"] = float(deal["sl"])
 
@@ -143,30 +198,12 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
             state.autosave(force=True)
 
     c = st.columns(1 if mobile else 3)
-    with c[0]: 
-        deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
-    
+    with c[0]: deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
     with c[1 % len(c)]:
-        # Кнопка ДО инпута, чтобы её коллбэк успел обновить состояние
-        if last_click and st.button("⤵︎ SL = последний клик", key=f"slc_{ticker}", use_container_width=True, on_click=_set_sl_from_click):
-            pass # Вся логика в коллбэке
-            
-        deal["sl"] = st.number_input(
-            "Стоп-лосс", 
-            value=float(deal.get("sl") or 0.0), 
-            step=float(inst.min_step or 0.01), 
-            format="%.6f", 
-            key=f"sl_{ticker}"
-        ) or None
-
+        if last_click and st.button("⤵︎ SL = последний клик", key=f"slc_{ticker}", use_container_width=True, on_click=_set_sl_from_click): pass
+        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"sl_{ticker}") or None
     with c[2 % len(c)]:
-        deal["tp"] = st.number_input(
-            "Тейк-профит (0 = авто по R:R)", 
-            value=float(deal.get("tp") or 0.0), 
-            step=float(inst.min_step or 0.01), 
-            format="%.6f", 
-            key=f"tp_{ticker}"
-        ) or None
+        deal["tp"] = st.number_input("Тейк-профит (0 = авто по R:R)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
 
     entries_df = pd.DataFrame(deal["entries"] or [{"price": inst.price, "qty": 0, "note": ""}])
     ed = st.data_editor(entries_df.rename(columns={"price": "Цена", "qty": "Кол-во", "note": "Комментарий"}), num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Цена": st.column_config.NumberColumn(format="%.6f", step=inst.min_step), "Кол-во": st.column_config.NumberColumn(format="%d", min_value=0, step=1)}, key=f"entries_{ticker}")
