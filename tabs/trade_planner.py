@@ -623,18 +623,21 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                     active_tool = st.radio("Инструмент (M10)", ["Нет", "M10: Зигзаг"], horizontal=True, key=key("active_tool_m10"))
                     active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
 
-            # ============ Переключатели (включая «Кластеры») ============
+            # ============ Переключатели (сетка 2×2) ============
             with c_toggles:
-                show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
                 if _is_mobile():
+                    show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
                     show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
                     show_levels = st.toggle("Уровни покуп/продаж", value=True, key=key(f"show_levels_{tf_name}"))
                     show_clusters = st.toggle("Кластеры", value=False, key=key(f"show_clusters_{tf_name}"))
                 else:
                     col_t1, col_t2 = st.columns(2)
-                    with col_t1: show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
-                    with col_t2: show_levels = st.toggle("Уровни покуп/продаж", value=True, key=key(f"show_levels_{tf_name}"))
-                    show_clusters = st.toggle("Кластеры", value=False, key=key(f"show_clusters_{tf_name}"))
+                    with col_t1:
+                        show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
+                        show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
+                    with col_t2:
+                        show_levels = st.toggle("Уровни покуп/продаж", value=True, key=key(f"show_levels_{tf_name}"))
+                        show_clusters = st.toggle("Кластеры", value=False, key=key(f"show_clusters_{tf_name}"))
 
             # ============ Данные кластеров ============
             clusters_data = []
