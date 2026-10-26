@@ -1,6 +1,21 @@
 [theme]
-primaryColor = "#198754"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
+base = "dark"
+primaryColor = "#2E86DE"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#161A25"
+textColor = "#FAFAFA"
 font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[server]
+maxUploadSize = 5
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+fastReruns = true
