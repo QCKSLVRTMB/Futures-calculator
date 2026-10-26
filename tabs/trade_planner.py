@@ -125,8 +125,8 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1 (по 3 точкам)
-    if is_d1 and d1_pts and len(d1_pts) == 3:
+    # Канал D1 (по 3 точкам) - теперь отрисовывается на всех таймфреймах
+    if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]
         t2, p2 = d1_pts[1]
         t3, p3 = d1_pts[2]
@@ -142,7 +142,13 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         dt_12 = time2 - time1 if time2 != time1 else 1
         slope_time = (p2 - p1) / dt_12
         
-        dt_end = df_chart.index[-1] + pd.Timedelta(days=10)
+        # Определяем длину буфера для текущего таймфрейма
+        if is_intraday:
+            time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
+        else:
+            time_buffer = pd.Timedelta(days=10)
+            
+        dt_end = df_chart.index[-1] + time_buffer
         time_end = dt_end.timestamp()
         
         y_ray1_end = slope_time * (time_end - time1) + p1
@@ -716,7 +722,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
-    # Сохранение в кэш
     current_d1_pts = st.session_state.get(d1_pts_key, [])
     serializable_d1_pts = [(str(t), float(p)) for t, p in current_d1_pts]
     
