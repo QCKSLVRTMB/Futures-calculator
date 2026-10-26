@@ -19,6 +19,56 @@ IMS_MARGIN_MAP = {
     "КОУР":    ("IM_BUY_ERC", "IM_SELL_ERC"),
 }
 
+# Известные коды базовых активов для эвристики классификации
+ASSET_BA_MAP = {
+    "RTS": "Индекс", "MIX": "Индекс", "MXI": "Индекс", "IMOEX": "Индекс",
+    "RGBI": "Индекс", "RVI": "Индекс", "MXM": "Индекс", "SPYF": "Индекс",
+    "SI": "Валюта", "EU": "Валюта", "CNY": "Валюта", "USD": "Валюта",
+    "EUR": "Валюта", "GBP": "Валюта", "ED": "Валюта", "USDRUB": "Валюта",
+    "BR": "Товар", "GD": "Товар", "PT": "Товар", "PD": "Товар",
+    "SV": "Товар", "GOLD": "Товар", "SILV": "Товар", "NG": "Товар",
+    "RUIBS": "Ставка", "RUONIA": "Ставка",
+}
+
+
+def _classify_ba_type(group, asset_code):
+    """Тип БА: Индекс / Акция / Валюта / Товар / Ставка / Фонд / Прочее."""
+    g = str(group).lower() if group else ""
+    a = str(asset_code).upper() if asset_code else ""
+
+    if "индекс" in g or "index" in g:
+        return "Индекс"
+    if "валют" in g or "currency" in g or "forex" in g:
+        return "Валюта"
+    if "товар" in g or "commodit" in g:
+        return "Товар"
+    if "акци" in g or "stock" in g or "share" in g or "equity" in g:
+        return "Акция"
+    if "ставк" in g or "interest" in g or "rate" in g:
+        return "Ставка"
+    if "фонд" in g or "fund" in g:
+        return "Фонд"
+
+    if a in ASSET_BA_MAP:
+        return ASSET_BA_MAP[a]
+
+    return "Прочее"
+
+
+def _classify_futures_type(delivery_type, group, asset_code):
+    """Тип фьючерсов: Поставочный / Расчётный."""
+    dt = str(delivery_type).lower() if delivery_type else ""
+
+    if "deliver" in dt or "постав" in dt:
+        return "Поставочный"
+    if "cash" in dt or "расчет" in dt or "settle" in dt or "безнал" in dt:
+        return "Расчётный"
+
+    ba_type = _classify_ba_type(group, asset_code)
+    if ba_type in ("Акция", "Товар", "Фонд"):
+        return "Поставочный"
+    return "Расчётный"
+
 
 def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР", commission="Т-Инвестиции"):
     st.subheader("🔍 Скринер фьючерсов MOEX")
@@ -31,7 +81,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
 
     df = iss_df.copy()
 
-    # ============ КОМИССИИ (из тарифа, выбранного в sidebar) ============
+    # ============ КОМИССИИ ============
     if t_conf["type"] == "fixed":
         df["Commission_1"] = t_conf["broker_fee"] + df["BUYSELLFEE"]
         df["Commission_addr"] = t_conf["broker_fee"]
@@ -64,7 +114,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         return long_m, short_m
 
     def _margin_fallback(ticker):
-        # fallback: Google Sheets -> INITIALMARGIN
         long_m = short_m = 0.0
         if go_df is not None and not go_df.empty:
             try:
@@ -105,7 +154,11 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
 
     df["MaxContracts"] = df["MarginUsed"].apply(lambda m: _max_contracts(m, deposit))
 
-    # ============ Инфо-строка об источнике ГО ============
+    # ============ КЛАССИФИКАЦИЯ ============
+    df["BAType"] = df.apply(lambda r: _classify_ba_type(r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
+    df["FuturesType"] = df.apply(lambda r: _classify_futures_type(r.get("DELIVERYTYPE", ""), r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
+
+    # ============ Инфо-строка ============
     ims_source_ok = ims_has_buy and ims_has_sell
     sample_ticker = df.iloc[0]["SECID"] if len(df) else "—"
     sample_row = ims_df[ims_df["SECID"] == sample_ticker] if (ims_df is not None and not ims_df.empty and "SECID" in ims_df.columns) else pd.DataFrame()
@@ -127,11 +180,28 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             f"Источник ГО: Google Sheets / INITIALMARGIN"
         )
 
-    # ============ ФИЛЬТРЫ ============
-    f1, f2, f3, f4 = st.columns([2, 2, 2, 1])
+    # ============ ФИЛЬТРЫ (ряд 1: 3 колонки) ============
+    f1, f2, f3 = st.columns([2, 2, 2])
     with f1:
         search = st.text_input("Поиск по тикеру / имени", "", key="scr_search")
     with f2:
+        ba_types = sorted(df["BAType"].dropna().unique().tolist())
+        ba_pick = st.multiselect(
+            f"Тип БА ({len(ba_types)})",
+            ba_types, default=[], key="scr_ba_type",
+            help="Индекс / Акция / Валюта / Товар / Ставка / Фонд / Прочее. Можно выбрать несколько",
+        )
+    with f3:
+        fut_types = sorted(df["FuturesType"].dropna().unique().tolist())
+        fut_pick = st.multiselect(
+            f"Тип фьючерсов ({len(fut_types)})",
+            fut_types, default=[], key="scr_fut_type",
+            help="Поставочный / Расчётный. Можно выбрать несколько",
+        )
+
+    # ============ ФИЛЬТРЫ (ряд 2: 3 колонки) ============
+    f1, f2, f3 = st.columns([2, 2, 2])
+    with f1:
         assets = sorted(df["ASSETCODE"].dropna().unique().tolist())
         asset_pick = st.multiselect(
             f"Код актива ({len(assets)})",
@@ -146,7 +216,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
                 if st.button("Сброс", key="scr_asset_reset", use_container_width=True):
                     st.session_state["scr_asset"] = []
                     st.rerun()
-    with f3:
+    with f2:
         exp_dates = sorted(df["LASTTRADEDATE"].dropna().unique().tolist())
         exp_pick = st.multiselect(
             f"Экспирация ({len(exp_dates)})",
@@ -161,30 +231,70 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
                 if st.button("Сброс", key="scr_exp_reset", use_container_width=True):
                     st.session_state["scr_exp"] = []
                     st.rerun()
-    with f4:
+    with f3:
         only_traded = st.checkbox("Только торгуемые", value=True, key="scr_traded")
-
-    col_fit, _ = st.columns([2, 3])
-    with col_fit:
         only_fitting = st.checkbox(
             "Только помещающиеся в депозит",
             value=False,
             key="scr_fit",
             help=f"Скрыть контракты, на которые не хватает депозита ({deposit:,.0f} ₽) при выбранном типе ГО ({margin_type}).",
         )
+        only_nearest = st.checkbox(
+            "Только ближайшие контракты",
+            value=True,
+            key="scr_nearest",
+            help="Оставить по одному контракту на каждый базовый актив — с минимальной датой экспирации.",
+        )
 
+    # ============ ПРИМЕНЕНИЕ ФИЛЬТРОВ ============
     view = df.copy()
     if search:
         s = search.strip().upper()
         view = view[view["SECID"].str.upper().str.contains(s, na=False) | view["SHORTNAME"].str.upper().str.contains(s, na=False)]
+    if ba_pick:
+        view = view[view["BAType"].isin(ba_pick)]
+    if fut_pick:
+        view = view[view["FuturesType"].isin(fut_pick)]
     if asset_pick:
         view = view[view["ASSETCODE"].isin(asset_pick)]
     if exp_pick:
         view = view[view["LASTTRADEDATE"].isin(exp_pick)]
     if only_traded:
         view = view[view["VALTODAY"].fillna(0) > 0]
+
+    # --- только ближайшие контракты (один на ASSETCODE) ---
+    if only_nearest and not view.empty:
+        mask_valid = view["ASSETCODE"].fillna("").astype(str) != ""
+        if mask_valid.any():
+            sub = view.loc[mask_valid].copy()
+            sub["_MIN_EXP"] = sub.groupby("ASSETCODE")["LASTTRADEDATE"].transform("min")
+            nearest = sub[sub["LASTTRADEDATE"] == sub["_MIN_EXP"]].drop(columns=["_MIN_EXP"])
+            others = view.loc[~mask_valid]
+            view = pd.concat([nearest, others], ignore_index=False)
+
     if only_fitting:
         view = view[view["MaxContracts"] >= 1]
+
+    total_before = len(df)
+    total_after = len(view)
+
+    # Подпись о текущем отборе
+    filter_desc = []
+    if search:
+        filter_desc.append(f"поиск «{search}»")
+    if ba_pick:
+        filter_desc.append(f"тип БА: {', '.join(ba_pick)}")
+    if fut_pick:
+        filter_desc.append(f"тип фьючерсов: {', '.join(fut_pick)}")
+    if asset_pick:
+        filter_desc.append(f"активы: {len(asset_pick)}")
+    if exp_pick:
+        filter_desc.append(f"экспираций: {len(exp_pick)}")
+    if only_nearest:
+        filter_desc.append("только ближайшие контракты")
+    filter_text = " · ".join(filter_desc) if filter_desc else "без дополнительных фильтров"
+
+    st.caption(f"**Показано {total_after} из {total_before}** · {filter_text}")
 
     if view.empty:
         st.warning("По заданным фильтрам инструментов не найдено.")
@@ -196,6 +306,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     # ============ ВЫВОД ============
     out = view.rename(columns={
         "SECID": "Тикер", "SHORTNAME": "Краткое наименование", "LAST": "Текущая цена",
+        "BAType": "Тип БА", "FuturesType": "Тип фьючерсов",
         "Notional": "Стоимость контракта", "LOTVOLUME": "Доступных лотов", "MINSTEP": "Шаг цены",
         "LASTTRADEDATE": "Дата экспирации", "ASSETCODE": "Код актива", "OPENPOSITION": "Открытых позиций",
         "LOTSIZE": "Лот", "INITIALMARGIN": "ГО (ISS sec)",
@@ -206,7 +317,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "Updated": "Дата", "Commission_1": "Комиссия на 1 сделку",
         "Commission_addr": "Комиссия на адресную сделку", "Commission_clear": "Клиринговая комиссия"
     })[[
-        "Тикер", "Краткое наименование", "Текущая цена", "Стоимость контракта",
+        "Тикер", "Краткое наименование", "Тип БА", "Тип фьючерсов",
+        "Текущая цена", "Стоимость контракта",
         "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
         "Доступных лотов", "Шаг цены", "Дата экспирации", "Код актива",
         "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
@@ -248,6 +360,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         column_config={
             "Тикер": st.column_config.TextColumn(width="small"),
             "Краткое наименование": st.column_config.TextColumn(width="medium"),
+            "Тип БА": st.column_config.TextColumn(width="small"),
+            "Тип фьючерсов": st.column_config.TextColumn(width="small"),
             "Дата": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
             "ГО LONG": st.column_config.NumberColumn(help=f"ГО на покупку по уровню {margin_type}"),
             "ГО SHORT": st.column_config.NumberColumn(help=f"ГО на продажу по уровню {margin_type}"),
@@ -261,11 +375,15 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "🔴 — ГО превышает депозит (не хватает на 1 контракт)"
     )
 
+    # ============ МЕТРИКИ ============
     fit_count = int((view["MaxContracts"] >= 1).sum())
-    total_count = len(view)
+    unique_assets = view["ASSETCODE"].nunique()
+    unique_exps = view["LASTTRADEDATE"].nunique()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Инструментов", total_count)
-    c2.metric("Помещается на депозит", f"{fit_count} / {total_count}")
-    c3.metric("Максимальный VALTODAY", f"{view['VALTODAY'].max():,.0f} ₽" if not view.empty else "—")
-    c4.metric("Обновлено", datetime.now().strftime("%H:%M:%S"))
+    c1.metric("Показано", f"{total_after} из {total_before}")
+    c2.metric("Помещается на депозит", f"{fit_count} / {total_after}")
+    c3.metric("Уникальных активов", unique_assets)
+    c4.metric("Экспираций", unique_exps)
+
+    st.caption(f"Обновлено: {datetime.now().strftime('%H:%M:%S')}")
