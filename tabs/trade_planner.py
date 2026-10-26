@@ -7,9 +7,9 @@ from data import vlookup, to_float, get_margin, fetch_moex_candles
 from rules import lookup
 
 INTERVALS = {
-    "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
-    "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True},
-    "M10": {"interval": 10, "days_back": 5,   "is_intraday": True},
+    "D1":  {"interval": 24, "days_back": 250, "is_intraday": False, "show_trend": True},
+    "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True,  "show_trend": False},
+    "M10": {"interval": 10, "days_back": 5,   "is_intraday": True,  "show_trend": False},
 }
 
 def _div(a, b, default=0.0):
@@ -25,7 +25,43 @@ def check_zigzag_pattern(a, b, c, d, direction):
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0):
+def detect_trend(df):
+    """Определяет тренд на основе глобальных экстремумов и скользящих средних."""
+    if len(df) < 20:
+        return "Боковик"
+
+    # 1. Поиск глобальных точек
+    min_idx = df['Low'].idxmin()
+    max_idx = df['High'].idxmax()
+    
+    current_price = df['Close'].iloc[-1]
+    
+    # 2. Логика "от нижнего минимума вправо"
+    # Если минимум был в первой половине графика, а сейчас цена выше
+    if df.index.get_loc(min_idx) < len(df) * 0.5 and current_price > df['Low'].min() * 1.05:
+        # Проверяем, что последние движения действительно выше минимума
+        if current_price > df['High'].iloc[-5:].mean():
+            return "Тренд вверх"
+
+    # 3. Логика "от верхнего максимума вправо"
+    # Если максимум был в первой половине, а сейчас цена ниже
+    if df.index.get_loc(max_idx) < len(df) * 0.5 and current_price < df['High'].max() * 0.95:
+        if current_price < df['Low'].iloc[-5:].mean():
+            return "Тренд вниз"
+            
+    # 4. Резервная логика (если экстремумы в конце) — по скользящим средним
+    sma20 = df['Close'].rolling(20).mean().iloc[-1]
+    sma50 = df['Close'].rolling(50).mean().iloc[-1]
+    
+    if pd.notna(sma20) and pd.notna(sma50):
+        if sma20 > sma50:
+            return "Тренд вверх"
+        elif sma20 < sma50:
+            return "Тренд вниз"
+            
+    return "Боковик"
+
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False):
     if df_chart.empty:
         return None
 
@@ -68,13 +104,40 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
+    # --- ДОБАВЛЕНИЕ ПЛАШКИ ТРЕНДА ---
+    if show_trend:
+        trend_text = detect_trend(df_chart)
+        
+        if trend_text == "Тренд вверх":
+            bg_color = "#198754" # Зеленый
+            font_color = "white"
+        elif trend_text == "Тренд вниз":
+            bg_color = "#dc3545" # Красный
+            font_color = "white"
+        else:
+            bg_color = "#e2e3e5" # Серый
+            font_color = "black"
+
+        fig.add_annotation(
+            text=trend_text,
+            xref="paper", yref="paper",
+            x=0.99, y=0.99,
+            xanchor="right", yanchor="top",
+            showarrow=False,
+            font=dict(size=14, color=font_color, weight="bold"),
+            bgcolor=bg_color,
+            bordercolor="black",
+            borderwidth=1,
+            borderpad=6,
+            opacity=0.9
+        )
+
     fig.update_layout(
         title=title, height=700,
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=10, r=10, t=40, b=10), # Увеличили верхний отступ, чтобы плашка не наезжала на заголовок
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
         hovermode='closest',
-        hoversubplots="axis", # <-- Синхронизация перекрестия между графиками
         spikedistance=-1,
     )
 
@@ -88,29 +151,19 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
-    # Вертикальное перекрестие (рисуется для всех подграфиков)
     fig.update_xaxes(
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
-        showspikes=True, 
-        spikemode='across', 
-        spikesnap='cursor',
-        spikecolor='gray', 
-        spikethickness=1, 
-        spikedash='dash',
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='gray', spikethickness=1, spikedash='dash',
     )
     
-    # Горизонтальное перекрестие (локальное для каждого графика)
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
         tickformat=tick_fmt,
-        showspikes=True, 
-        spikemode='across', 
-        spikesnap='cursor',
-        spikecolor='gray', 
-        spikethickness=1, 
-        spikedash='dash',
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='gray', spikethickness=1, spikedash='dash',
     )
     return fig
 
@@ -192,6 +245,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
+                    show_trend=cfg["show_trend"]
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
