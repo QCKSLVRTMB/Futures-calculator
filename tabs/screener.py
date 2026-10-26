@@ -122,7 +122,7 @@ ALL_COLUMNS = [
     "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
     "Открытый интерес (контр.)", "Ликвидность",
     "Шаг цены", "Дата экспирации", "Код актива",
-    "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
+    "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
     "Расчетная цена", "Предыдущая цена", "Дата",
     "Комиссия на 1 сделку", "Комиссия на адресную сделку", "Клиринговая комиссия",
 ]
@@ -134,7 +134,6 @@ HIDDEN_IN_COMPACT = [
     "Клиринговая комиссия",
     "Стоимость шага цены",
     "Лот",
-    "Открытых позиций",
     "Комиссия на адресную сделку",
 ]
 
@@ -248,7 +247,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     # ============ КЛАССИФИКАЦИЯ + ЛИКВИДНОСТЬ ============
     df["BAType"] = df.apply(lambda r: _classify_ba_type(r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
     df["FuturesType"] = df.apply(lambda r: _classify_futures_type(r.get("DELIVERYTYPE", ""), r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
-    # Ликвидность — по открытому интересу (OPENPOSITION)
     df["Liquidity"] = df["OPENPOSITION"].apply(_liquidity_rating)
 
     # ============ Инфо-строка ============
@@ -485,7 +483,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "Предыдущая цена": _fmt_price,
         "Макс. контрактов":  _fmt_int,
         "Открытый интерес (контр.)": _fmt_int,
-        "Открытых позиций":  _fmt_int,
         "Лот":               _fmt_int,
         "Шаг цены": _fmt_step,
     }
@@ -519,8 +516,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             column_config[col] = st.column_config.TextColumn("Откр. интерес", width=_width(col), help="Общее количество контрактов в обращении (OPENPOSITION)")
         elif col == "Ликвидность":
             column_config[col] = st.column_config.TextColumn("Ликвидность", width=_width(col), help="Оценка по открытому интересу: ≥500 000 — высокая, ≥100 000 — средняя, ≥10 000 — низкая, >0 — очень низкая")
-        elif col == "Открытых позиций":
-            column_config[col] = st.column_config.TextColumn("ОП", width=_width(col), help="Дублирует открытый интерес (для совместимости)")
         elif col == "Шаг цены":
             column_config[col] = st.column_config.TextColumn("Шаг", width=_width(col))
         elif col == "Код актива":
