@@ -109,7 +109,7 @@ def get_sperandeo_geometry(df, trend_direction):
         
     return None, None, None, None, []
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False):
     if df_chart.empty:
         return None
 
@@ -144,15 +144,18 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
+    # --- ЛОГИКА РАСКРАСКИ ОБЪЕМОВ ---
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
         times = df_chart.index
 
+        # 1. Базовое правило (Текущий > 2 предыдущих)
         for i in range(2, len(df_chart)):
             if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]:
                 colors[i] = 'black'
 
+        # 2. Специальное правило для H1 (10:00)
         if is_h1:
             for i in range(len(df_chart)):
                 if times[i].hour == 10 and times[i].minute == 0:
@@ -166,6 +169,18 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                     if len(prev_10s) == 2:
                         if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
                             colors[i] = 'black'
+
+        # 3. Правило аномального объема для M10 (Красный цвет)
+        if is_m10:
+            vol_series = pd.Series(volumes)
+            # Считаем среднее за 20 баров (со сдвигом на 1, чтобы не учитывать текущий бар)
+            rolling_avg = vol_series.rolling(window=20, min_periods=5).mean().shift(1)
+            
+            for i in range(len(volumes)):
+                if pd.notna(rolling_avg.iloc[i]) and rolling_avg.iloc[i] > 0:
+                    # Если объем в 3 раза больше среднего за 20 баров - это аномалия
+                    if volumes[i] > rolling_avg.iloc[i] * 3.0:
+                        colors[i] = 'red'
 
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
@@ -458,6 +473,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             try:
                 is_d1 = (tf_name == "D1")
                 is_h1 = (tf_name == "H1")
+                is_m10 = (tf_name == "M10")
                 
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
@@ -467,7 +483,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     trend_text=trend_d1 if is_d1 else "",
                     channel_data=final_channel,
                     annotations_data=final_annotations,
-                    is_h1=is_h1
+                    is_h1=is_h1,
+                    is_m10=is_m10
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
