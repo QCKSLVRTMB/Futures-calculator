@@ -508,7 +508,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 
                 if fig:
                     if is_h1:
-                        # Управление режимом рисования
                         col1, col2 = st.columns([1, 1])
                         with col1:
                             draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
@@ -529,19 +528,35 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
                                 bar = df_h1_view.iloc[idx]
                                 
-                                # МАГНИТ
-                                if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']):
-                                    snapped_y = float(bar['High'])
-                                else:
-                                    snapped_y = float(bar['Low'])
-                                    
                                 manual_points_key = f"manual_zigzag_{ticker}_H1"
                                 if manual_points_key not in st.session_state:
                                     st.session_state[manual_points_key] = []
+                                
+                                pts = st.session_state[manual_points_key]
+                                
+                                # ПРОВЕРКА НА ПОВТОРНЫЙ КЛИК ПО ТОМУ ЖЕ БАРУ
+                                if pts and pts[-1][0] == bar.name:
+                                    last_y = pts[-1][1]
+                                    # Если стояли на High, переключаем на Low, и наоборот
+                                    if np.isclose(last_y, bar['High']):
+                                        snapped_y = float(bar['Low'])
+                                    else:
+                                        snapped_y = float(bar['High'])
                                     
-                                new_pt = (bar.name, snapped_y)
-                                if not st.session_state[manual_points_key] or st.session_state[manual_points_key][-1] != new_pt:
-                                    st.session_state[manual_points_key].append(new_pt)
+                                    # Заменяем последнюю точку
+                                    pts[-1] = (bar.name, snapped_y)
+                                    st.session_state[manual_points_key] = pts
+                                    st.rerun()
+                                else:
+                                    # Обычный магнит для нового бара
+                                    if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']):
+                                        snapped_y = float(bar['High'])
+                                    else:
+                                        snapped_y = float(bar['Low'])
+                                        
+                                    new_pt = (bar.name, snapped_y)
+                                    pts.append(new_pt)
+                                    st.session_state[manual_points_key] = pts
                                     st.rerun()
                         else:
                             st.plotly_chart(fig, use_container_width=True)
