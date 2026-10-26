@@ -415,7 +415,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     
     return fig, breakouts
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio, commission):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
 
