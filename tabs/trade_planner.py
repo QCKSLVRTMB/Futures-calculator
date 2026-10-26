@@ -128,7 +128,6 @@ def analyze_manual_zigzag(pts, df):
                 "pullback_verdict": pullback_verdict,
             })
 
-    # --- ОЦЕНКА ПРОБОЕВ ---
     for i, brk in enumerate(breakouts):
         if i == 0:
             brk['breakout_verdict'] = "base"
@@ -323,11 +322,9 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         drawn_coords = set()
         
         for brk in breakouts:
-            # Объявляем цвета для линий
             line_color_breakout = "#0d6efd"
             line_color_pullback = "#fd7e14"
             
-            # --- Отрисовка Пробоя ---
             verdict = brk['breakout_verdict']
             ratio = brk['breakout_ratio']
             
@@ -351,7 +348,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 f"Оценка: <b>{v_text}</b>"
             )
             
-            # Плашка у пика (D)
             peak_key = (brk['peak_time'], brk['peak_price'])
             if peak_key not in drawn_coords:
                 fig.add_annotation(
@@ -366,7 +362,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 )
                 drawn_coords.add(peak_key)
             
-            # Плашка у сопротивления (B)
             res_key = (brk['resistance_time'], brk['resistance_price'])
             if res_key not in drawn_coords:
                 fig.add_annotation(
@@ -381,7 +376,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 )
                 drawn_coords.add(res_key)
 
-            # Линии пробоя
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['resistance_price'],
@@ -410,7 +404,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 row=1, col=1
             )
 
-            # --- Отрисовка Отката ---
             if brk['has_pullback']:
                 p_verdict = brk['pullback_verdict']
                 if p_verdict == "strong":
@@ -646,6 +639,16 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
     st.markdown("#### Графики рынка (MOEX ISS)")
+
+    # --- ВНЕДРЕНИЕ CSS ДЛЯ КУРСОРА-ТОЧКИ ---
+    st.markdown("""
+        <style>
+        .js-plotly-plot .plotly .draglayer {
+            cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='4' fill='red'/%3E%3C/svg%3E") 8 8, crosshair !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     chart_tabs = st.tabs(["D1 (Дни)", "H1 (Часы)", "M10 (10 минут)"])
 
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -654,29 +657,37 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             is_h1 = (tf_name == "H1")
             is_m10 = (tf_name == "M10")
 
-            if is_d1:
-                active_tool = st.radio(
-                    "Выберите инструмент для рисования (D1)", 
-                    ["Нет", "D1: Канал", "D1: Уровень 1/2"],
-                    horizontal=True, key=key("active_tool_d1")
-                )
-                active_k = "d1_chan" if active_tool == "D1: Канал" else ("d1_fib" if active_tool == "D1: Уровень 1/2" else None)
-            elif is_h1:
-                active_tool = st.radio(
-                    "Выберите инструмент для рисования (H1)", 
-                    ["Нет", "H1: Тенденция", "H1: Уровень 1/2"],
-                    horizontal=True, key=key("active_tool_h1")
-                )
-                active_k = "h1_tend" if active_tool == "H1: Тенденция" else ("h1_fib" if active_tool == "H1: Уровень 1/2" else None)
-            else:
-                active_tool = st.radio(
-                    "Выберите инструмент для рисования (M10)", 
-                    ["Нет", "M10: Зигзаг"],
-                    horizontal=True, key=key("active_tool_m10")
-                )
-                active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
+            # Панель управления инструментами
+            c_tools, c_toggle = st.columns([3, 1])
+            
+            with c_tools:
+                if is_d1:
+                    active_tool = st.radio(
+                        "Инструмент (D1)", 
+                        ["Нет", "D1: Канал", "D1: Уровень 1/2"],
+                        horizontal=True, key=key("active_tool_d1")
+                    )
+                    active_k = "d1_chan" if active_tool == "D1: Канал" else ("d1_fib" if active_tool == "D1: Уровень 1/2" else None)
+                elif is_h1:
+                    active_tool = st.radio(
+                        "Инструмент (H1)", 
+                        ["Нет", "H1: Тенденция", "H1: Уровень 1/2"],
+                        horizontal=True, key=key("active_tool_h1")
+                    )
+                    active_k = "h1_tend" if active_tool == "H1: Тенденция" else ("h1_fib" if active_tool == "H1: Уровень 1/2" else None)
+                else:
+                    active_tool = st.radio(
+                        "Инструмент (M10)", 
+                        ["Нет", "M10: Зигзаг"],
+                        horizontal=True, key=key("active_tool_m10")
+                    )
+                    active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
+            
+            with c_toggle:
+                st.write("") # Отступ
+                show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
 
-            if active_k:
+            if active_k and show_tools:
                 max_pts = 3 if active_k == "d1_chan" else (2 if "fib" in active_k else None)
                 active_skey = pts_keys[active_k]
                 active_undo = f"undo_{active_k}_{ticker}"
@@ -731,6 +742,20 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
                 m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
                 
+                # Скрываем графические элементы, если выключен тумблер
+                if not show_tools:
+                    d1_pts_view = None
+                    d1_fib_view = None
+                    h1_tend_view = None
+                    h1_fib_view = None
+                    m10_zig_view = None
+                else:
+                    d1_pts_view = d1_pts
+                    d1_fib_view = d1_fib
+                    h1_tend_view = h1_pts
+                    h1_fib_view = h1_fib
+                    m10_zig_view = m10_zig
+
                 fig, breakouts = draw_chart(
                     df_candles,
                     title=f"{ticker} — {tf_name}",
@@ -740,17 +765,17 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     is_m10=is_m10,
                     is_d1=is_d1,
                     ticker=ticker,
-                    d1_pts=d1_pts,
-                    d1_fib_pts=d1_fib,
-                    h1_tend_pts=h1_pts,
-                    h1_fib_pts=h1_fib,
-                    m10_zig_pts=m10_zig,
+                    d1_pts=d1_pts_view,
+                    d1_fib_pts=d1_fib_view,
+                    h1_tend_pts=h1_tend_view,
+                    h1_fib_pts=h1_fib_view,
+                    m10_zig_pts=m10_zig_view,
                     strategy=strategy,
                     zoom_start_time=zoom_start
                 )
                 
                 if fig:
-                    if active_k:
+                    if active_k and show_tools:
                         event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_{tf_name}")
                         
                         now = time.time()
@@ -827,7 +852,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     else:
                         st.plotly_chart(fig, use_container_width=True)
                             
-                    if is_h1 and breakouts:
+                    if is_h1 and breakouts and show_tools:
                         st.markdown("---")
                         st.markdown("#### Анализ пробоев и откатов H1")
                         
