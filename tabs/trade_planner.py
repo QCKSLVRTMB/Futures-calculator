@@ -114,7 +114,9 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         return None
 
     df_chart = df_chart.tail(150).copy()
-    tick_fmt = f",.{decimals}f"
+    
+    # ИСПРАВЛЕНИЕ: Убрали запятую, чтобы не было разделения разрядов (96,000 -> 96000)
+    tick_fmt = f".{decimals}f"
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
@@ -144,18 +146,16 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
-    # --- ЛОГИКА РАСКРАСКИ ОБЪЕМОВ ---
+    # ЛОГИКА РАСКРАСКИ ОБЪЕМОВ
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
         times = df_chart.index
 
-        # 1. Базовое правило (Текущий > 2 предыдущих)
         for i in range(2, len(df_chart)):
             if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]:
                 colors[i] = 'black'
 
-        # 2. Специальное правило для H1 (10:00)
         if is_h1:
             for i in range(len(df_chart)):
                 if times[i].hour == 10 and times[i].minute == 0:
@@ -170,7 +170,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                         if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
                             colors[i] = 'black'
 
-        # 3. Правило аномального объема (3x от среднего за 20 баров)
         if is_m10 or is_h1 or is_d1:
             vol_series = pd.Series(volumes)
             rolling_avg = vol_series.rolling(window=20, min_periods=5).mean().shift(1)
@@ -207,7 +206,8 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         )
 
     if annotations_data:
-        fmt = f",.{decimals}f"
+        # ИСПРАВЛЕНИЕ: Убрали запятую и здесь
+        fmt = f".{decimals}f"
         for idx, typ, val in annotations_data:
             price_str = f"{val:{fmt}}"
             if typ == 'high':
