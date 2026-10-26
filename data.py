@@ -21,9 +21,6 @@ MARGIN_COL_MAP = {
     "КОУР":    (12, 13),
 }
 
-# ==========================================
-# 1. ЗАГРУЗКА ИЗ GOOGLE SHEETS
-# ==========================================
 @st.cache_data(ttl=60, show_spinner=False)
 def _load(gid: str) -> pd.DataFrame:
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
@@ -63,31 +60,17 @@ def get_margin(go_df, ticker, risk_level, direction) -> float:
     col = col_long if direction == "LONG" else col_short
     return to_float(vlookup(go_df, ticker, col))
 
-
-# ==========================================
-# 2. ЗАГРУЗКА ИЗ MOEX ISS (Текущие данные)
-# ==========================================
 MOEX_URL = (
     "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
     "?iss.meta=off&iss.only=securities,marketdata"
 )
 
 SEC_COLS = {
-    "SECID": ["SECID"],
-    "SHORTNAME": ["SHORTNAME"],
-    "ASSETCODE": ["ASSETCODE"],
-    "GROUP": ["GROUP"],
-    "SECTYPE": ["SECTYPE"],
-    "DELIVERYTYPE": ["DELIVERYTYPE"],
-    "LOTSIZE": ["LOTSIZE"],
-    "MINSTEP": ["MINSTEP"],
-    "STEPPRICE": ["STEPPRICE"],
-    "LASTTRADEDATE": ["LASTTRADEDATE"],
-    "INITIALMARGIN": ["INITIALMARGIN"],
-    "PREVPRICE": ["PREVPRICE"],
-    "PREVSETTLEPRICE": ["PREVSETTLEPRICE"],
-    "BUYSELLFEE": ["BUYSELLFEE"],
-    "DECIMALS": ["DECIMALS"],
+    "SECID": ["SECID"], "SHORTNAME": ["SHORTNAME"], "ASSETCODE": ["ASSETCODE"],
+    "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
+    "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
+    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], 
+    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"],
 }
 
 MKT_COLS = {
@@ -109,7 +92,8 @@ def _pick_columns(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
             out[std_name] = None
     return out
 
-@st.cache_data(ttl=30, show_spinner="Загрузка данных MOEX ISS…")
+# ИЗМЕНЕНО: ttl=300 (5 минут), чтобы страница не перезагружалась каждые 30 секунд
+@st.cache_data(ttl=300, show_spinner="Загрузка данных MOEX ISS…")
 def fetch_moex_forts() -> pd.DataFrame:
     try:
         r = requests.get(MOEX_URL, timeout=15)
@@ -127,7 +111,6 @@ def fetch_moex_forts() -> pd.DataFrame:
 
     df = sec.merge(mkt, on="SECID", how="left")
 
-    # Числовые колонки
     numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
                     "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
                     "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"]
@@ -137,24 +120,12 @@ def fetch_moex_forts() -> pd.DataFrame:
         else:
             df[col] = 0
 
-    # Текстовые колонки — приводим к строке и заполняем пустой строкой
-    text_cols = ["SHORTNAME", "ASSETCODE", "GROUP", "SECTYPE", "DELIVERYTYPE"]
-    for col in text_cols:
-        if col not in df.columns:
-            df[col] = ""
-        else:
-            df[col] = df[col].fillna("").astype(str)
-
     price = df["LAST"].where(df["LAST"] > 0, df["PREVSETTLEPRICE"])
     multiplier = df["STEPPRICE"] / df["MINSTEP"].replace(0, 1)
     df["Notional"] = price * multiplier
     df["Updated"] = pd.to_datetime(df["UPDATETIME"], errors="coerce")
     return df
 
-
-# ==========================================
-# 2b. ЗАГРУЗКА ГО ПО УРОВНЯМ РИСКА (IMS)
-# ==========================================
 MOEX_IMS_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/ims"
 
 @st.cache_data(ttl=60, show_spinner="Загрузка ГО (IMS)…")
@@ -176,7 +147,6 @@ def fetch_moex_ims() -> pd.DataFrame:
             df = pd.read_csv(StringIO(r.text), sep="|")
             df.columns = [c.split("(")[0].strip() for c in df.columns]
         except Exception as e:
-            st.warning(f"Не удалось загрузить данные ГО (IMS): {e}")
             return pd.DataFrame()
 
     df.columns = [str(c).upper() for c in df.columns]
@@ -191,10 +161,6 @@ def fetch_moex_ims() -> pd.DataFrame:
         df["IM_TIME"] = pd.to_datetime(df["IM_TIME"], errors="coerce")
     return df
 
-
-# ==========================================
-# 3. ЗАГРУЗКА СВЕЧЕЙ
-# ==========================================
 MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/{ticker}/candles.json"
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -248,10 +214,6 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     return df
 
-
-# ==========================================
-# 4. СОХРАНЕНИЕ / ЗАГРУЗКА АНАЛИТИКИ
-# ==========================================
 CACHE_FILE = "trend_cache.json"
 
 def load_trend_cache() -> dict:
