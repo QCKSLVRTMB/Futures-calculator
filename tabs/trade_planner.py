@@ -173,7 +173,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if df_chart.empty:
         return None
 
-    # Оставляем последние 150 баров для читаемости
     df_chart = df_chart.tail(150).copy()
 
     tick_fmt = f",.{decimals}f"
@@ -181,12 +180,11 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
-    # ВОЗВРАЩАЕМ БАРЫ OHLC (увеличенная толщина тиков)
     fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
         low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black',
-        increasing_line_width=1.5, decreasing_line_width=1.5, # Толщина тиков
+        increasing_line_width=1.5, decreasing_line_width=1.5,
         name='Рынок'
     ), row=1, col=1)
 
@@ -308,16 +306,13 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
+    # --- ИСПРАВЛЕНИЕ ОСИ Y ---
+    # Берем минимум и максимум ТОЛЬКО из текущих баров, игнорируя далекие дневные плашки
     y_min = df_chart['Low'].min()
     y_max = df_chart['High'].max()
 
-    if annotations_data:
-        ann_vals = [val for _, _, val in annotations_data]
-        if ann_vals:
-            y_min = min(y_min, min(ann_vals))
-            y_max = max(y_max, max(ann_vals))
-
-    y_padding = (y_max - y_min) * 0.05
+    # Добавляем 10% отступа сверху и снизу для идеальной посадки баров
+    y_padding = (y_max - y_min) * 0.10
     y_range = [y_min - y_padding, y_max + y_padding]
 
     fig.update_xaxes(
