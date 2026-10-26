@@ -109,7 +109,7 @@ def get_sperandeo_geometry(df, trend_direction):
         
     return None, None, None, None, []
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False, is_d1=False):
     if df_chart.empty:
         return None
 
@@ -170,17 +170,21 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                         if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
                             colors[i] = 'black'
 
-        # 3. Правило аномального объема для M10 (Красный цвет)
-        if is_m10:
+        # 3. Правило аномального объема (3x от среднего за 20 баров)
+        if is_m10 or is_h1 or is_d1:
             vol_series = pd.Series(volumes)
-            # Считаем среднее за 20 баров (со сдвигом на 1, чтобы не учитывать текущий бар)
             rolling_avg = vol_series.rolling(window=20, min_periods=5).mean().shift(1)
             
-            for i in range(len(volumes)):
-                if pd.notna(rolling_avg.iloc[i]) and rolling_avg.iloc[i] > 0:
-                    # Если объем в 3 раза больше среднего за 20 баров - это аномалия
-                    if volumes[i] > rolling_avg.iloc[i] * 3.0:
-                        colors[i] = 'red'
+            anomaly_color = None
+            if is_m10: anomaly_color = 'red'
+            elif is_h1: anomaly_color = 'green'
+            elif is_d1: anomaly_color = 'blue'
+
+            if anomaly_color:
+                for i in range(len(volumes)):
+                    if pd.notna(rolling_avg.iloc[i]) and rolling_avg.iloc[i] > 0:
+                        if volumes[i] > rolling_avg.iloc[i] * 3.0:
+                            colors[i] = anomaly_color
 
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
@@ -484,7 +488,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     channel_data=final_channel,
                     annotations_data=final_annotations,
                     is_h1=is_h1,
-                    is_m10=is_m10
+                    is_m10=is_m10,
+                    is_d1=is_d1
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
