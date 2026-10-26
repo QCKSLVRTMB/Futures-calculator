@@ -1,16 +1,17 @@
+from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from data import vlookup, to_float, MARGIN_COL_MAP
-from rules import TREND_VALUES
+from core import state
+from core.market import to_float, vlookup
+from core.config import TREND_VALUES, MARGIN_COL_MAP
 
 def update_active_tickers():
-    """Обновляет список тикеров при изменении полей ввода."""
-    selected_iss = st.session_state.get("picker_ms", [])
-    manual_txt = st.session_state.get("picker_txt", "")
-    manual_list = [x.strip().upper() for x in manual_txt.split(",") if x.strip()]
-    st.session_state["active_tickers"] = list(dict.fromkeys(selected_iss + manual_list))
+    sel = st.session_state.get("picker_ms", [])
+    manual = [x.strip().upper() for x in st.session_state.get("picker_txt", "").split(",") if x.strip()]
+    state.set_active_tickers(sel + manual)
+    state.autosave(force=True)
 
-def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
+def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobile=False):
     st.subheader("📊 Данные с биржи")
 
     if not iss_df.empty and "VALTODAY" in iss_df.columns:
@@ -28,21 +29,11 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
         st.session_state["picker_txt"] = ", ".join(manual)
 
     st.markdown("#### Выбор инструментов")
-    
     c1, c2 = st.columns([3, 2])
     with c1:
-        st.multiselect(
-            "Выбрать из списка MOEX ISS",
-            options=available_tickers,
-            key="picker_ms",
-            on_change=update_active_tickers
-        )
+        st.multiselect("Выбрать из списка MOEX ISS", options=available_tickers, key="picker_ms", on_change=update_active_tickers)
     with c2:
-        st.text_input(
-            "Ввести тикер вручную (через запятую)",
-            key="picker_txt",
-            on_change=update_active_tickers
-        )
+        st.text_input("Ввести тикер вручную (через запятую)", key="picker_txt", on_change=update_active_tickers)
 
     picked = st.session_state["active_tickers"]
     if not picked:
@@ -54,14 +45,10 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
     
     for t in picked:
         iss_row = iss_df[iss_df["SECID"] == t] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
-        
         price = 0.0
         if not iss_row.empty:
-            price = to_float(iss_row.iloc[0].get("LAST", 0))
-            if price == 0:
-                price = to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
-        if price == 0:
-            price = to_float(vlookup(md_df, t, 9))
+            price = to_float(iss_row.iloc[0].get("LAST", 0)) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
+        if price == 0: price = to_float(vlookup(md_df, t, 9))
             
         step_price, step_cost = 0.0, 0.0
         if not iss_row.empty:
@@ -88,31 +75,22 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
         max_contracts = int(deposit // margin) if margin > 0 else 0
         risk_pct = round(margin / deposit * 100, 2) if margin > 0 else 0.0
 
-        state = st.session_state["market_state"].get(t, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
-
+        m = state.ticker(t)["market"]
         rows.append({
-            "Код": code,
-            "Наименование": name,
-            "Тикер": t,
-            "Шаг цены": step_price,
-            "Ст. шага": step_cost,
-            "ГО": margin,
-            "Доступно": max_contracts,
-            "Цена": price,
-            "Экспирация": expiry,
-            "Риск, %": risk_pct,
-            "Тренд": state["trend"],
-            "Волна": state["wave"],
-            "Тенденция": state["tendency"],
+            "Код": code, "Наименование": name, "Тикер": t, "Шаг цены": step_price,
+            "Ст. шага": step_cost, "ГО": margin, "Доступно": max_contracts, "Цена": price,
+            "Экспирация": expiry, "Риск, %": risk_pct,
+            "Тренд": m["trend"], "Волна": m["wave"], "Тенденция": m["tendency"],
         })
         
     df = pd.DataFrame(rows)
 
     st.markdown("#### Таблица данных")
+    MOBILE_COLS = ["Тикер", "Цена", "ГО", "Доступно", "Тренд", "Волна", "Тенденция"]
+    
     edited_df = st.data_editor(
-        df,
-        use_container_width=True,
-        hide_index=True,
+        df, use_container_width=True, hide_index=True,
+        column_order=MOBILE_COLS if mobile else None,
         column_config={
             "Тренд": st.column_config.SelectboxColumn("Тренд", options=TREND_VALUES, required=True),
             "Волна": st.column_config.SelectboxColumn("Волна", options=TREND_VALUES, required=True),
@@ -128,11 +106,5 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type):
     )
 
     for _, row in edited_df.iterrows():
-        t = row["Тикер"]
-        new_state = {
-            "trend": row["Тренд"],
-            "wave": row["Волна"],
-            "tendency": row["Тенденция"]
-        }
-        if st.session_state["market_state"].get(t) != new_state:
-            st.session_state["market_state"][t] = new_state
+        state.ticker(row["Тикер"])["market"].update({"trend": row["Тренд"], "wave": row["Волна"], "tendency": row["Тенденция"]})
+    state.autosave()
