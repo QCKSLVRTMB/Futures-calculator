@@ -240,7 +240,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                     bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
                 )
 
-    # --- ЛУЧИ КАНАЛА (с адаптивным продлением) ---
     if channel_data:
         try:
             x1, y1 = channel_data['p1']
@@ -258,12 +257,9 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             dt_12 = time2 - time1 if time2 != time1 else 1
             slope_time = (y2 - y1) / dt_12
             
-            # НОВОЕ: Адаптивное продление лучей вправо
             if is_intraday:
-                # На H1 и M10 продлеваем недалеко, чтобы бары оставались широкими
                 time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
             else:
-                # На D1 продлеваем на 10 дней
                 time_buffer = pd.Timedelta(days=10)
                 
             dt_end = df_chart.index[-1] + time_buffer
@@ -296,7 +292,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    # НОВОЕ: Ограничиваем ось X, чтобы бары не сжимались
     if len(df_chart) > 1:
         if is_intraday:
             time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
@@ -306,6 +301,21 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         x_range = [df_chart.index[0] - pd.Timedelta(hours=4), df_chart.index[-1] + time_buffer]
     else:
         x_range = None
+
+    # --- АДАПТАЦИЯ ОСИ Y (Максимальное заполнение высоты) ---
+    y_min = df_chart['Low'].min()
+    y_max = df_chart['High'].max()
+
+    # Если есть плашки, они могут выходить за пределы High/Low, учитываем и их
+    if annotations_data:
+        ann_vals = [val for _, _, val in annotations_data]
+        if ann_vals:
+            y_min = min(y_min, min(ann_vals))
+            y_max = max(y_max, max(ann_vals))
+
+    # Добавляем отступ в 5% сверху и снизу, чтобы плашки не прилипали к краям
+    y_padding = (y_max - y_min) * 0.05
+    y_range = [y_min - y_padding, y_max + y_padding]
 
     fig.update_xaxes(
         showgrid=True, gridcolor='lightgray', rangebreaks=rangebreaks, range=x_range,
@@ -317,7 +327,18 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         showgrid=True, gridcolor='lightgray', side='right', tickformat=tick_fmt,
         showspikes=True, spikemode='across', spikesnap='cursor',
         spikecolor='gray', spikethickness=1, spikedash='dash',
+        range=y_range, # Применяем вычисленный диапазон
+        row=1, col=1
     )
+
+    # Ось Y для объема оставляем стандартной
+    fig.update_yaxes(
+        showgrid=True, gridcolor='lightgray', side='right',
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='gray', spikethickness=1, spikedash='dash',
+        row=2, col=1
+    )
+    
     return fig
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
