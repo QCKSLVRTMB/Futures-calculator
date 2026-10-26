@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from data import vlookup, to_float, get_margin, fetch_moex_candles
+from data import vlookup, to_float, get_margin, fetch_moex_candles, load_trend_cache, save_trend_cache
 from rules import lookup
 
 INTERVALS = {
@@ -144,23 +144,19 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
-    # --- ЛОГИКА РАСКРАСКИ ОБЪЕМОВ ---
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
         times = df_chart.index
 
-        # 1. Общее правило: текущий > двух предыдущих
         for i in range(2, len(df_chart)):
             if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]:
                 colors[i] = 'black'
 
-        # 2. Специальное правило для H1 (10:00)
         if is_h1:
             for i in range(len(df_chart)):
                 if times[i].hour == 10 and times[i].minute == 0:
                     prev_10s = []
-                    # Ищем два предыдущих бара 10:00
                     for j in range(i-1, -1, -1):
                         if times[j].hour == 10 and times[j].minute == 0:
                             prev_10s.append(volumes[j])
@@ -353,67 +349,88 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         p1_auto, p2_auto, p3_auto = None, None, None
         auto_channel, auto_ann = None, []
 
-    # --- НАСТРОЙКА ТРЕНДА (Спойлер) ---
-    with st.expander("📐 Ручная настройка тренда", expanded=False):
-        st.markdown(f"**Тренд (D1):** {trend_d1}")
-        c1, c2, c3 = st.columns(3)
-        
-        val1 = float(p1_auto) if p1_auto is not None else None
-        val2 = float(p2_auto) if p2_auto is not None else None
-        val3 = float(p3_auto) if p3_auto is not None else None
-        
-        man_p1 = c1.number_input("Точка 1", value=val1, step=100.0, format="%.2f", key=key("man_p1"))
-        man_p2 = c2.number_input("Точка 2", value=val2, step=100.0, format="%.2f", key=key("man_p2"))
-        man_p3 = c3.number_input("Точка 3", value=val3, step=100.0, format="%.2f", key=key("man_p3"))
-        
-        final_channel = auto_channel
-        final_annotations = auto_ann
-        
-        if man_p1 is not None and man_p2 is not None and man_p3 is not None:
-            def find_bar(price, start_time, is_high):
-                sub = df_d1_view.loc[start_time:]
-                if sub.empty: return None
-                if is_high:
-                    idx = (sub['High'] - price).abs().idxmin()
-                    return (idx, float(sub.loc[idx, 'High']))
-                else:
-                    idx = (sub['Low'] - price).abs().idxmin()
-                    return (idx, float(sub.loc[idx, 'Low']))
-                    
-            if trend_d1 == "Тренд вниз":
-                b1 = find_bar(man_p1, df_d1_view.index[0], True)
-                b2 = find_bar(man_p2, b1[0], False) if b1 else None
-                b3 = find_bar(man_p3, b2[0], True) if b2 else None
-                
-                if b1 and b2 and b3:
-                    if df_d1_view.loc[b3[0]:, 'Low'].min() < b2[1]:
-                        final_channel = {'p1': b1, 'p2': b2, 'p3': b3}
-                        final_annotations = [(b1[0], 'high', b1[1]), (b2[0], 'low', b2[1]), (b3[0], 'high', b3[1])]
-                    else:
-                        st.warning("⚠️ Условие пробоя Точки 2 (поддержки) не выполнено. Канал не построен.")
-                        final_channel = None
-                        final_annotations = []
-                        
-            elif trend_d1 == "Тренд вверх":
-                b1 = find_bar(man_p1, df_d1_view.index[0], False)
-                b2 = find_bar(man_p2, b1[0], True) if b1 else None
-                b3 = find_bar(man_p3, b2[0], False) if b2 else None
-                
-                if b1 and b2 and b3:
-                    if df_d1_view.loc[b3[0]:, 'High'].max() > b2[1]:
-                        final_channel = {'p1': b1, 'p2': b3, 'p3': b2}
-                        final_annotations = [(b1[0], 'low', b1[1]), (b2[0], 'high', b2[1]), (b3[0], 'low', b3[1])]
-                    else:
-                        st.warning("⚠️ Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
-                        final_channel = None
-                        final_annotations = []
+    # --- ЗАГРУЗКА КЭША ИЗ JSON ---
+    cache = load_trend_cache()
+    ticker_cache = cache.get(ticker, {})
 
-    st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
-    c1, c2, c3, c4 = st.columns(4)
-    p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
-    p_b = c2.number_input("Точка B", value=None, step=100.0, format="%.2f", key=key("p_b"))
-    p_c = c3.number_input("Точка C", value=None, step=100.0, format="%.2f", key=key("p_c"))
-    p_d = c4.number_input("Точка D", value=None, step=100.0, format="%.2f", key=key("p_d"))
+    init_p1 = ticker_cache.get("man_p1", p1_auto)
+    init_p2 = ticker_cache.get("man_p2", p2_auto)
+    init_p3 = ticker_cache.get("man_p3", p3_auto)
+
+    init_a = ticker_cache.get("p_a")
+    init_b = ticker_cache.get("p_b")
+    init_c = ticker_cache.get("p_c")
+    init_d = ticker_cache.get("p_d")
+
+    # --- СПОЙЛЕР: ТЕХНИЧЕСКАЯ АНАЛИТИКА ---
+    with st.expander("📐 Техническая аналитика графика", expanded=False):
+        st.markdown(f"**Тренд (D1):** {trend_d1}")
+        
+        c1, c2, c3 = st.columns(3)
+        man_p1 = c1.number_input("Точка 1", value=float(init_p1) if init_p1 is not None else None, step=100.0, format="%.2f", key=key("man_p1"))
+        man_p2 = c2.number_input("Точка 2", value=float(init_p2) if init_p2 is not None else None, step=100.0, format="%.2f", key=key("man_p2"))
+        man_p3 = c3.number_input("Точка 3", value=float(init_p3) if init_p3 is not None else None, step=100.0, format="%.2f", key=key("man_p3"))
+        
+        st.markdown("---")
+        
+        st.markdown("**Зигзаг тенденции**")
+        c1, c2, c3, c4 = st.columns(4)
+        p_a = c1.number_input("Точка A", value=float(init_a) if init_a is not None else None, step=100.0, format="%.2f", key=key("p_a"))
+        p_b = c2.number_input("Точка B", value=float(init_b) if init_b is not None else None, step=100.0, format="%.2f", key=key("p_b"))
+        p_c = c3.number_input("Точка C", value=float(init_c) if init_c is not None else None, step=100.0, format="%.2f", key=key("p_c"))
+        p_d = c4.number_input("Точка D", value=float(init_d) if init_d is not None else None, step=100.0, format="%.2f", key=key("p_d"))
+
+        current_state = {
+            "man_p1": man_p1, "man_p2": man_p2, "man_p3": man_p3,
+            "p_a": p_a, "p_b": p_b, "p_c": p_c, "p_d": p_d
+        }
+        clean_state = {k: v for k, v in current_state.items() if v is not None}
+        
+        if clean_state != ticker_cache:
+            save_trend_cache(ticker, clean_state)
+
+    # Логика канала
+    final_channel = auto_channel
+    final_annotations = auto_ann
+    
+    if man_p1 is not None and man_p2 is not None and man_p3 is not None:
+        def find_bar(price, start_time, is_high):
+            sub = df_d1_view.loc[start_time:]
+            if sub.empty: return None
+            if is_high:
+                idx = (sub['High'] - price).abs().idxmin()
+                return (idx, float(sub.loc[idx, 'High']))
+            else:
+                idx = (sub['Low'] - price).abs().idxmin()
+                return (idx, float(sub.loc[idx, 'Low']))
+                
+        if trend_d1 == "Тренд вниз":
+            b1 = find_bar(man_p1, df_d1_view.index[0], True)
+            b2 = find_bar(man_p2, b1[0], False) if b1 else None
+            b3 = find_bar(man_p3, b2[0], True) if b2 else None
+            
+            if b1 and b2 and b3:
+                if df_d1_view.loc[b3[0]:, 'Low'].min() < b2[1]:
+                    final_channel = {'p1': b1, 'p2': b2, 'p3': b3}
+                    final_annotations = [(b1[0], 'high', b1[1]), (b2[0], 'low', b2[1]), (b3[0], 'high', b3[1])]
+                else:
+                    st.warning("⚠️ Условие пробоя Точки 2 (поддержки) не выполнено. Канал не построен.")
+                    final_channel = None
+                    final_annotations = []
+                    
+        elif trend_d1 == "Тренд вверх":
+            b1 = find_bar(man_p1, df_d1_view.index[0], False)
+            b2 = find_bar(man_p2, b1[0], True) if b1 else None
+            b3 = find_bar(man_p3, b2[0], False) if b2 else None
+            
+            if b1 and b2 and b3:
+                if df_d1_view.loc[b3[0]:, 'High'].max() > b2[1]:
+                    final_channel = {'p1': b1, 'p2': b3, 'p3': b2}
+                    final_annotations = [(b1[0], 'low', b1[1]), (b2[0], 'high', b2[1]), (b3[0], 'low', b3[1])]
+                else:
+                    st.warning("⚠️ Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
+                    final_channel = None
+                    final_annotations = []
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
