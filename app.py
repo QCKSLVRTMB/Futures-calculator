@@ -1,5 +1,4 @@
 import streamlit as st
-from datetime import datetime
 from data import (
     load_api, load_go, load_marketdata, fetch_moex_forts,
     export_cache_to_string, import_cache_from_string
@@ -12,7 +11,7 @@ st.set_page_config(page_title="Калькулятор фьючерсов", page_
 
 try:
     with st.sidebar:
-        st.header("⚙️ Параметры")
+        st.header("Параметры")
         deposit = st.number_input(
             "Депозит, ₽", min_value=1_000, value=75_000, step=1_000, key="deposit"
         )
@@ -20,41 +19,39 @@ try:
             "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"],
             key="margin_type",
         )
-        if st.button("🔄 Обновить данные", use_container_width=True):
+        rr_ratio = st.number_input(
+            "Risk Reward (1 к ...)", min_value=1.0, value=3.0, step=0.5, key="global_rr",
+            help="Глобальное соотношение риска к прибыли для всех калькуляторов"
+        )
+        
+        if st.button("Обновить данные", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
             
         st.markdown("---")
-        st.header("💾 Управление настройками")
+        st.header("Управление настройками")
         
-        # Экспорт кеша (Имя файла: DD.MM.YY.HH-MM.futures)
+        from datetime import datetime
         cache_str = export_cache_to_string()
         filename = datetime.now().strftime('%d.%m.%y.%H-%M') + ".futures"
         
         st.download_button(
-            label="📥 Экспорт сессии",
+            label="Экспорт сессии",
             data=cache_str,
             file_name=filename,
             mime="application/json",
             use_container_width=True,
-            help="Скачать все сохраненные настройки технической аналитики"
         )
         
-        # Импорт кеша
-        uploaded_file = st.file_uploader("📤 Импорт сессии", type=["futures", "json"])
+        uploaded_file = st.file_uploader("Импорт сессии", type=["futures", "json"])
         if uploaded_file is not None:
             if st.button("Применить импорт", type="primary", use_container_width=True):
                 string_data = uploaded_file.getvalue().decode("utf-8")
                 if import_cache_from_string(string_data):
                     st.success("Настройки успешно загружены!")
-                    
-                    # КРИТИЧЕСКИ ВАЖНО: Очищаем кэш виджетов из session_state,
-                    # чтобы Streamlit подтянул новые значения из JSON-файла.
-                    # Удаляем все ключи, связанные с калькуляторами и выбором тикеров.
                     for k in list(st.session_state.keys()):
                         if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_"):
                             del st.session_state[k]
-                            
                     st.rerun()
                 else:
                     st.error("Ошибка: неверный формат файла.")
@@ -71,7 +68,7 @@ try:
     if "market_state" not in st.session_state:
         st.session_state["market_state"] = {}
 
-    tab_names = ["📊 Данные с биржи", "🔍 Скринер"] + st.session_state["active_tickers"]
+    tab_names = ["Данные с биржи", "Скринер"] + st.session_state["active_tickers"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
@@ -90,6 +87,7 @@ try:
                 api_df=api_df, go_df=go_df, md_df=md_df,
                 iss_df=iss_df,
                 deposit=deposit,
+                rr_ratio=rr_ratio,
             )
 
 except Exception as e:
