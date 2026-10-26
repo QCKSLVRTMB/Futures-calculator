@@ -109,21 +109,46 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
+    # Канал D1 (по 3 точкам: 2 опорные, 1 параллельная)
     if d1_pts and len(d1_pts) == 3:
-        t1, p1 = d1_pts[0]
-        t2, p2 = d1_pts[1]
-        t3, p3 = d1_pts[2]
+        sorted_pts = sorted(d1_pts, key=lambda x: x[0])
+        t1, p1 = sorted_pts[0]
+        t2, p2 = sorted_pts[1]
+        t3, p3 = sorted_pts[2]
 
-        x1_ts = pd.to_datetime(t1)
-        x2_ts = pd.to_datetime(t2)
-        x3_ts = pd.to_datetime(t3)
+        # Определяем, является ли точка High или Low
+        is_high1 = abs(p1 - df_chart.loc[t1, 'High']) < abs(p1 - df_chart.loc[t1, 'Low'])
+        is_high2 = abs(p2 - df_chart.loc[t2, 'High']) < abs(p2 - df_chart.loc[t2, 'Low'])
+        is_high3 = abs(p3 - df_chart.loc[t3, 'High']) < abs(p3 - df_chart.loc[t3, 'Low'])
+
+        # Находим 2 точки одного типа (базовая линия) и 1 точку другого (параллельная)
+        if is_high1 == is_high2 and is_high1 != is_high3:
+            base1, base2 = (t1, p1), (t2, p2)
+            parallel = (t3, p3)
+        elif is_high1 == is_high3 and is_high1 != is_high2:
+            base1, base2 = (t1, p1), (t3, p3)
+            parallel = (t2, p2)
+        elif is_high2 == is_high3 and is_high2 != is_high1:
+            base1, base2 = (t2, p2), (t3, p3)
+            parallel = (t1, p1)
+        else:
+            base1, base2 = (t1, p1), (t2, p2)
+            parallel = (t3, p3)
+
+        x1_ts, p1_base = base1
+        x2_ts, p2_base = base2
+        x3_ts, p3_par = parallel
+
+        if x1_ts > x2_ts:
+            x1_ts, x2_ts = x2_ts, x1_ts
+            p1_base, p2_base = p2_base, p1_base
 
         time1 = x1_ts.timestamp()
         time2 = x2_ts.timestamp()
         time3 = x3_ts.timestamp()
 
         dt_12 = time2 - time1 if time2 != time1 else 1
-        slope_time = (p2 - p1) / dt_12
+        slope_time = (p2_base - p1_base) / dt_12
 
         if is_intraday:
             time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
@@ -133,15 +158,15 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         dt_end = df_chart.index[-1] + time_buffer
         time_end = dt_end.timestamp()
 
-        y_ray1_end = slope_time * (time_end - time1) + p1
-        y_ray2_end = slope_time * (time_end - time3) + p3
+        y_ray1_end = slope_time * (time_end - time1) + p1_base
+        y_ray2_end = slope_time * (time_end - time3) + p3_par
 
         fig.add_shape(
-            type="line", x0=x1_ts, y0=p1, x1=dt_end, y1=y_ray1_end,
+            type="line", x0=x1_ts, y0=p1_base, x1=dt_end, y1=y_ray1_end,
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
         fig.add_shape(
-            type="line", x0=x3_ts, y0=p3, x1=dt_end, y1=y_ray2_end,
+            type="line", x0=x3_ts, y0=p3_par, x1=dt_end, y1=y_ray2_end,
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
 
@@ -577,18 +602,17 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                 pts_now = []
             if len(pts_now) == 0:
                 st.caption(
-                    "🖱️ **Точка A**: кликните у основания бара → Low, у вершины → High. "
-                    "Это будет первое основание канала."
+                    "🖱️ **Точка 1**: кликните на первом экстремуме (например, минимуме). "
+                    "Ближе к вершине бара → High, ближе к основанию → Low."
                 )
             elif len(pts_now) == 1:
                 st.caption(
-                    "🖱️ **Точка B**: кликните на противоположной границе следующего бара "
-                    "(выше A → High, ниже A → Low). Это вторая опорная точка."
+                    "🖱️ **Точка 2**: кликните на втором экстремуме того же типа (например, еще один минимум)."
                 )
             elif len(pts_now) == 2:
                 st.caption(
-                    "🖱️ **Точка C**: кликните на той же границе, что и A, но на новом баре. "
-                    "Через B и C пройдёт вторая параллельная линия."
+                    "🖱️ **Точка 3**: кликните на противоположном экстремуме (например, максимуме). "
+                    "Через эту точку пройдет параллельная линия."
                 )
         elif active_k in ("h1_zig", "d1_fib", "h1_fib"):
             pts_now = st.session_state.get(active_skey, [])
@@ -695,27 +719,12 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                                         new_pts.append((bar.name, snapped_y))
 
                                 elif active_k == "d1_chan":
-                                    if len(new_pts) == 0:
-                                        snapped_y = (
-                                            float(bar['High'])
-                                            if abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
-                                            else float(bar['Low'])
-                                        )
-                                        new_pts.append((bar.name, snapped_y))
-
-                                    elif len(new_pts) == 1:
-                                        if clicked_y > new_pts[0][1]:
-                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
-                                            snapped_y = float(bar['High'])
-                                        else:
-                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'High']))
-                                            snapped_y = float(bar['Low'])
-                                        new_pts.append((bar.name, snapped_y))
-
-                                    elif len(new_pts) == 2:
-                                        is_first_low = new_pts[1][1] > new_pts[0][1]
-                                        snapped_y = float(bar['Low']) if is_first_low else float(bar['High'])
-                                        new_pts.append((bar.name, snapped_y))
+                                    snapped_y = (
+                                        float(bar['High'])
+                                        if abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
+                                        else float(bar['Low'])
+                                    )
+                                    new_pts.append((bar.name, snapped_y))
 
                                 elif active_k in ["d1_fib", "h1_fib"]:
                                     if len(new_pts) == 0:
