@@ -15,8 +15,11 @@ PURPLE = "#7B1FA2"
 BAR_LINE_COLOR = "#000000"
 
 
-def _ts(x) -> pd.Timestamp: return pd.to_datetime(x)
-def sort_points(points: list) -> list: return sorted((p for p in points if p), key=lambda p: _ts(p[0]))
+def _ts(x) -> pd.Timestamp: 
+    return pd.to_datetime(x)
+
+def sort_points(points: list) -> list: 
+    return sorted((p for p in points if p), key=lambda p: _ts(p[0]))
 
 
 def auto_zigzag(df: pd.DataFrame, depth_pct: float = 1.5) -> list:
