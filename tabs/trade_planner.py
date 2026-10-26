@@ -280,40 +280,41 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Зигзаг (M10)'
         ), row=1, col=1)
 
-        if len(m10_zig_pts) >= 2:
-            if strategy == "Зигзаг тенденции":
-                t_c, p_c = m10_zig_pts[-2]
-                t_d, p_d = m10_zig_pts[-1]
-            else:
-                t_c, p_c = m10_zig_pts[0]
-                t_d, p_d = m10_zig_pts[-1]
+    # 6. RR Zones based on H1 Tendency (Работает на всех ТФ)
+    if h1_tend_pts and len(h1_tend_pts) >= 2:
+        if strategy == "Зигзаг тенденции":
+            t_c, p_c = h1_tend_pts[-2]
+            t_d, p_d = h1_tend_pts[-1]
+        else:
+            t_c, p_c = h1_tend_pts[0]
+            t_d, p_d = h1_tend_pts[-1]
 
-            low = min(p_c, p_d)
-            high = max(p_c, p_d)
-            diff = high - low
+        low = min(p_c, p_d)
+        high = max(p_c, p_d)
+        diff = high - low
+        
+        if diff > 0:
+            y1_start, y1_end = low, low + diff/3
+            y3_start, y3_end = low + 2*diff/3, high
             
-            if diff > 0:
-                y1_start, y1_end = low, low + diff/3
-                y3_start, y3_end = low + 2*diff/3, high
-                
-                if p_d > p_c:
-                    color_bottom = "rgba(0, 128, 0, 0.1)"
-                    color_top = "rgba(255, 0, 0, 0.1)"
-                else:
-                    color_bottom = "rgba(255, 0, 0, 0.1)"
-                    color_top = "rgba(0, 128, 0, 0.1)"
+            if p_d > p_c:
+                color_bottom = "rgba(0, 128, 0, 0.1)"
+                color_top = "rgba(255, 0, 0, 0.1)"
+            else:
+                color_bottom = "rgba(255, 0, 0, 0.1)"
+                color_top = "rgba(0, 128, 0, 0.1)"
 
-                fig.add_shape(
-                    type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
-                    fillcolor=color_bottom, line=dict(width=0),
-                    layer="below", xref="x", yref="y", row=1, col=1
-                )
-                
-                fig.add_shape(
-                    type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end,
-                    fillcolor=color_top, line=dict(width=0),
-                    layer="below", xref="x", yref="y", row=1, col=1
-                )
+            fig.add_shape(
+                type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
+                fillcolor=color_bottom, line=dict(width=0),
+                layer="below", xref="x", yref="y", row=1, col=1
+            )
+            
+            fig.add_shape(
+                type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end,
+                fillcolor=color_top, line=dict(width=0),
+                layer="below", xref="x", yref="y", row=1, col=1
+            )
 
     breakouts = []
     if is_h1 and h1_tend_pts:
@@ -640,7 +641,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     st.markdown("#### Графики рынка (MOEX ISS)")
 
-    # --- ВНЕДРЕНИЕ CSS ДЛЯ КУРСОРА-ТОЧКИ ---
     st.markdown("""
         <style>
         .js-plotly-plot .plotly .draglayer {
@@ -657,7 +657,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             is_h1 = (tf_name == "H1")
             is_m10 = (tf_name == "M10")
 
-            # Панель управления инструментами
             c_tools, c_toggle = st.columns([3, 1])
             
             with c_tools:
@@ -684,7 +683,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
             
             with c_toggle:
-                st.write("") # Отступ
+                st.write("")
                 show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
 
             if active_k and show_tools:
@@ -742,7 +741,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
                 m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
                 
-                # Скрываем графические элементы, если выключен тумблер
                 if not show_tools:
                     d1_pts_view = None
                     d1_fib_view = None
