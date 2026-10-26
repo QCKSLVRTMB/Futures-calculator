@@ -198,7 +198,7 @@ def analyze_manual_zigzag(pts, df):
     return breakouts
 
 
-# ============ КЛАСТЕРЫ ОБЪЁМОВ (новая логика) ============
+# ============ КЛАСТЕРЫ ОБЪЁМОВ ============
 def find_volume_cluster_zones(df_h1, threshold_mult=3.0, window=20):
     """
     Возвращает список зон, построенных по H1-барам с аномальным объёмом
@@ -283,8 +283,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     ), row=1, col=1)
 
     # ============ КЛАСТЕРЫ ОБЪЁМОВ ============
-    # Каждая зона рисуется полупрозрачным прямоугольником на всю ширину графика.
-    # Наложения накапливают альфу — где больше наложений, там цвет ярче.
     if volume_clusters:
         try:
             chart_start = df_chart.index[0]
@@ -602,28 +600,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         </style>
     """, unsafe_allow_html=True)
 
-    # ============ ПЕРЕКЛЮЧАТЕЛЬ КЛАСТЕРОВ ============
-    show_clusters = st.toggle("🎯 Кластеры объёмов (H1)", value=False, key=key("show_clusters"),
-                              help="Зоны H1-баров с аномальным объёмом, продлённые горизонтально. "
-                                   "Чем больше наложений — тем ярче зона. Отображаются на всех таймфреймах.")
-    clusters_data = []
-    if show_clusters:
-        try:
-            h1_for_clusters = fetch_moex_candles(ticker, interval=60, days_back=30)
-            if h1_for_clusters is not None and not h1_for_clusters.empty:
-                clusters_data = find_volume_cluster_zones(h1_for_clusters)
-                if clusters_data:
-                    st.caption(
-                        f"Аномальных баров H1: **{len(clusters_data)}** · "
-                        f"чем ярче зона, тем больше наложений"
-                    )
-                else:
-                    st.caption("Аномальных баров не обнаружено (нет объёмов > 3× среднего)")
-            else:
-                st.caption("Недостаточно данных H1 для расчёта кластеров")
-        except Exception as e:
-            st.warning(f"Не удалось рассчитать кластеры: {e}")
-
     chart_tabs = st.tabs(["D1 (Дни)", "H1 (Часы)", "M10 (10 минут)"])
 
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -647,15 +623,37 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                     active_tool = st.radio("Инструмент (M10)", ["Нет", "M10: Зигзаг"], horizontal=True, key=key("active_tool_m10"))
                     active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
 
+            # ============ Переключатели (включая «Кластеры») ============
             with c_toggles:
                 show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
                 if _is_mobile():
                     show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
                     show_levels = st.toggle("Уровни покуп/продаж", value=True, key=key(f"show_levels_{tf_name}"))
+                    show_clusters = st.toggle("Кластеры", value=False, key=key(f"show_clusters_{tf_name}"))
                 else:
                     col_t1, col_t2 = st.columns(2)
                     with col_t1: show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
                     with col_t2: show_levels = st.toggle("Уровни покуп/продаж", value=True, key=key(f"show_levels_{tf_name}"))
+                    show_clusters = st.toggle("Кластеры", value=False, key=key(f"show_clusters_{tf_name}"))
+
+            # ============ Данные кластеров ============
+            clusters_data = []
+            if show_clusters:
+                try:
+                    h1_for_clusters = fetch_moex_candles(ticker, interval=60, days_back=30)
+                    if h1_for_clusters is not None and not h1_for_clusters.empty:
+                        clusters_data = find_volume_cluster_zones(h1_for_clusters)
+                        if clusters_data:
+                            st.caption(
+                                f"Аномальных баров H1: **{len(clusters_data)}** · "
+                                f"чем ярче зона, тем больше наложений"
+                            )
+                        else:
+                            st.caption("Аномальных баров не обнаружено (нет объёмов > 3× среднего)")
+                    else:
+                        st.caption("Недостаточно данных H1 для расчёта кластеров")
+                except Exception as e:
+                    st.warning(f"Не удалось рассчитать кластеры: {e}")
 
             if active_k and show_tools:
                 if active_k == "d1_chan": max_pts = 3
