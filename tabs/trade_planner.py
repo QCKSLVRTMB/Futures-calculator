@@ -52,53 +52,67 @@ def detect_trend(df):
             return "Тренд вниз"
     return "Боковик"
 
-def get_zigzag_pivots(df, deviation_pct=0.05):
+def get_zigzag_pivots_tw(df, depth=4, deviation_pct=0.07):
+    """
+    Точная реализация индикатора ZigZag из TradingView.
+    depth: количество баров для поиска локального экстремума (по умолчанию 4)
+    deviation_pct: процент отката для подтверждения (по умолчанию 7%)
+    """
     pivots = []
-    if len(df) < 2: return pivots
-    
-    trend = 1 
-    high = df['High'].iloc[0]
-    low = df['Low'].iloc[0]
-    last_pivot_idx = df.index[0]
-    last_pivot_price = low
-    
-    for i in range(1, len(df)):
-        if trend == 1:
-            if df['High'].iloc[i] > high:
-                high = df['High'].iloc[i]
-                last_pivot_idx = df.index[i]
-                last_pivot_price = high
-            elif df['Low'].iloc[i] < high * (1 - deviation_pct):
-                pivots.append((last_pivot_idx, 'high', last_pivot_price))
-                trend = -1
-                low = df['Low'].iloc[i]
-                last_pivot_idx = df.index[i]
-                last_pivot_price = low
-        else:
-            if df['Low'].iloc[i] < low:
-                low = df['Low'].iloc[i]
-                last_pivot_idx = df.index[i]
-                last_pivot_price = low
-            elif df['High'].iloc[i] > low * (1 + deviation_pct):
-                pivots.append((last_pivot_idx, 'low', last_pivot_price))
-                trend = 1
-                high = df['High'].iloc[i]
-                last_pivot_idx = df.index[i]
-                last_pivot_price = high
-                
-    if trend == 1:
-        pivots.append((last_pivot_idx, 'high', last_pivot_price))
-    else:
-        pivots.append((last_pivot_idx, 'low', last_pivot_price))
+    if len(df) < depth * 2:
+        return pivots
+
+    # 1. Поиск локальных экстремумов (High и Low) с учетом параметра Depth
+    potential_pivots = []
+    for i in range(depth, len(df) - depth):
+        # Проверяем, является ли бар локальным максимумом
+        is_high = all(df['High'].iloc[i] >= df['High'].iloc[i-j] for j in range(1, depth+1)) and \
+                  all(df['High'].iloc[i] >= df['High'].iloc[i+j] for j in range(1, depth+1))
+        if is_high:
+            potential_pivots.append((df.index[i], 'high', df['High'].iloc[i]))
+
+        # Проверяем, является ли бар локальным минимумом
+        is_low = all(df['Low'].iloc[i] <= df['Low'].iloc[i-j] for j in range(1, depth+1)) and \
+                 all(df['Low'].iloc[i] <= df['Low'].iloc[i+j] for j in range(1, depth+1))
+        if is_low:
+            potential_pivots.append((df.index[i], 'low', df['Low'].iloc[i]))
+
+    # Сортируем потенциальные точки по времени
+    potential_pivots.sort(key=lambda x: x[0])
+
+    if not potential_pivots:
+        return []
+
+    # 2. Фильтрация по Deviation (процент отклонения)
+    pivots = [potential_pivots[0]]
+    for current in potential_pivots[1:]:
+        last = pivots[-1]
         
+        # Если тип тот же самый (например, два high подряд), оставляем самый экстремальный
+        if current[1] == last[1]:
+            if (current[1] == 'high' and current[2] > last[2]) or \
+               (current[1] == 'low' and current[2] < last[2]):
+                pivots[-1] = current
+        else:
+            # Если тип разный, проверяем, было ли отклонение достаточным (Deviation)
+            if last[1] == 'high':
+                drop_pct = (last[2] - current[2]) / last[2] # Падение
+                if drop_pct >= deviation_pct:
+                    pivots.append(current)
+            else:
+                rise_pct = (current[2] - last[2]) / last[2] # Рост
+                if rise_pct >= deviation_pct:
+                    pivots.append(current)
+
     return pivots
 
-def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
+def get_sperandeo_geometry(df, trend_direction):
     """
-    Строит канал и возвращает координаты плашек. 
-    Для 2-й точки ищет самый свежий (последний) откат, чтобы канал был актуальным.
+    Строит канал, используя ZigZag (TW style).
     """
-    pivots = get_zigzag_pivots(df, deviation_pct=deviation_pct)
+    # Используем настройки как на вашем скриншоте: Depth=4, Deviation=7%
+    pivots = get_zigzag_pivots_tw(df, depth=4, deviation_pct=0.07)
+    
     if len(pivots) < 3:
         return None, []
 
@@ -115,12 +129,12 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 l1_idx = i
         
         if l1_idx is not None:
-            # 2. Ищем САМЫЙ ПОСЛЕДНИЙ минимум (L2), который выше L1
+            # 2. Ищем следующий валидный минимум (L2), который выше L1
             l2_idx = None
-            for i in range(len(pivots) - 1, l1_idx, -1):
+            for i in range(l1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'low' and pivots[i][2] > pivots[l1_idx][2]:
                     l2_idx = i
-                    break # Нашли самый свежий откат
+                    break # Берем первый же валидный откат
             
             if l2_idx is not None:
                 # 3. Ищем максимум (H1) между L1 и L2
@@ -144,12 +158,12 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 h1_idx = i
         
         if h1_idx is not None:
-            # 2. Ищем САМЫЙ ПОСЛЕДНИЙ максимум (H2), который ниже H1
+            # 2. Ищем следующий валидный максимум (H2), который ниже H1
             h2_idx = None
-            for i in range(len(pivots) - 1, h1_idx, -1):
+            for i in range(h1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'high' and pivots[i][2] < pivots[h1_idx][2]:
                     h2_idx = i
-                    break # Нашли самый свежий откат
+                    break
             
             if h2_idx is not None:
                 # 3. Ищем минимум (L1) между H1 и H2
@@ -378,7 +392,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     if not df_d1_full.empty:
         df_d1_view = df_d1_full.tail(150).copy()
         trend_d1 = detect_trend(df_d1_view)
-        channel_data, annotations_data = get_sperandeo_geometry(df_d1_view, trend_d1, deviation_pct=0.05)
+        channel_data, annotations_data = get_sperandeo_geometry(df_d1_view, trend_d1)
     else:
         trend_d1 = "Боковик"
         channel_data, annotations_data = None, []
