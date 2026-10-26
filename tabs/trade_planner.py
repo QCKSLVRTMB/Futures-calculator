@@ -375,7 +375,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     df_d1_full = fetch_moex_candles(ticker, interval=24, days_back=250)
     
     if not df_d1_full.empty:
-        df_d1_view = df_d1_full.tail(150).copy()  # Берем ровно то окно, которое будет на графике
+        df_d1_view = df_d1_full.tail(150).copy()
         trend_d1 = detect_trend(df_d1_view)
         channel_data, annotations_data = get_sperandeo_geometry(df_d1_view, trend_d1, deviation_pct=0.05)
     else:
@@ -413,14 +413,17 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
+                # Рисуем канал, плашки и тренд ТОЛЬКО для дневного графика
+                is_d1 = (tf_name == "D1")
+                
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
-                    trend_text=trend_d1,
-                    channel_data=channel_data,
-                    annotations_data=annotations_data
+                    trend_text=trend_d1 if is_d1 else "",
+                    channel_data=channel_data if is_d1 else None,
+                    annotations_data=annotations_data if is_d1 else None
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
