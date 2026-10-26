@@ -103,9 +103,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     if zoom_start_time is not None:
         try:
             z_time = pd.to_datetime(zoom_start_time)
-            # Оставляем бары начиная с нужного времени
             filtered_df = df_chart.loc[z_time:]
-            # Если баров слишком мало (например, точка была на выходных), берем стандартные 150
             if len(filtered_df) < 10:
                 df_chart = df_chart.tail(150).copy()
             else:
@@ -231,7 +229,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             if strategy == "Зигзаг тенденции":
                 t_c, p_c = manual_pts[-2]
                 t_d, p_d = manual_pts[-1]
-            else: # Свинг торговля
+            else:
                 t_c, p_c = manual_pts[0]
                 t_d, p_d = manual_pts[-1]
 
@@ -431,12 +429,20 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
+    # ИСПРАВЛЕНИЕ СЕТКИ: привязка к 07:00 утра
     if len(df_chart) > 1:
         if is_intraday:
             time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
+            
+            first_day = df_chart.index[0].normalize()
+            snap_start = first_day + pd.Timedelta(hours=7)
+            if snap_start > df_chart.index[0]:
+                snap_start -= pd.Timedelta(days=1)
+                
+            x_range = [snap_start, df_chart.index[-1] + time_buffer]
         else:
             time_buffer = pd.Timedelta(days=10)
-        x_range = [df_chart.index[0] - pd.Timedelta(hours=4), df_chart.index[-1] + time_buffer]
+            x_range = [df_chart.index[0] - pd.Timedelta(days=1), df_chart.index[-1] + time_buffer]
     else:
         x_range = None
 
@@ -610,12 +616,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
                 continue
 
-            # --- ЛОГИКА УМНОГО ЗУМА ---
             zoom_start = None
             if tf_name == "H1" and len(d1_pts) == 3:
-                zoom_start = d1_pts[1][0]  # Вторая точка канала D1
+                zoom_start = d1_pts[1][0]
             elif tf_name == "M10" and len(h1_pts) >= 4:
-                zoom_start = h1_pts[-4][0] # Первая точка из последних 4-х
+                zoom_start = h1_pts[-4][0]
 
             last_ts = df_candles.index[-1]
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
@@ -658,7 +663,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             clicked_time = pd.to_datetime(pt["x"])
                             clicked_y = pt["y"]
                             
-                            df_view = df_candles.tail(150).copy() # Для кликов всегда берем последние 150 для точности
+                            df_view = df_candles.tail(150).copy()
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             bar = df_view.iloc[idx]
                             
