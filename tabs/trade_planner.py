@@ -16,6 +16,15 @@ INTERVALS = {
 def _div(a, b, default=0.0):
     return a / b if b else default
 
+def calc_commission(price, multiplier, tariff):
+    """Возвращает комиссию в рублях за 1 контракт при заданной цене."""
+    notional = price * multiplier
+    if tariff == "Т-Инвестиции":
+        return max(notional * 0.001, 0.01) # 0.1%, мин 0.01
+    elif tariff == "Финам СТАНДАРТНЫЙ ФОРТС":
+        return 0.45 # Фикс 0.45 руб
+    return 0.0
+
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
     if df_period.empty:
@@ -145,58 +154,29 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # --- УРОВНИ ПОКУПАТЕЛЯ/ПРОДАВЦА + ПЛАШКИ НА ШКАЛЕ ---
     if show_levels and h1_levels:
         for lvl in h1_levels:
             try:
                 t_start = pd.to_datetime(lvl["time"])
                 if lvl["is_buy"]:
-                    y_bottom = float(lvl["low"])
-                    y_top = float(lvl["close"])
-                    zone_color = "rgba(128, 0, 128, 0.1)"
-                    label_bg = "rgba(128, 0, 128, 0.95)"
-                    label_fg = "white"
+                    y_bottom = float(lvl["low"]); y_top = float(lvl["close"])
+                    zone_color = "rgba(128, 0, 128, 0.1)"; label_bg = "rgba(128, 0, 128, 0.95)"; label_fg = "white"
                 else:
-                    y_bottom = float(lvl["close"])
-                    y_top = float(lvl["high"])
-                    zone_color = "rgba(255, 105, 180, 0.1)"
-                    label_bg = "rgba(255, 105, 180, 0.95)"
-                    label_fg = "black"
-
-                # Зона от начала бара до правого края
-                fig.add_shape(
-                    type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
-                    fillcolor=zone_color, line=dict(width=0),
-                    layer="below", xref="x", yref="y", row=1, col=1
-                )
-
-                # Плашка на ВЕРХНЕЙ границе
-                fig.add_annotation(
-                    x=0.99, y=y_top,
-                    xref="x domain", yref="y",
-                    text=f" {y_top:.{decimals}f} ",
-                    showarrow=False,
-                    xanchor="right", yanchor="middle",
-                    bgcolor=label_bg,
-                    font=dict(color=label_fg, size=10, weight="bold"),
-                    bordercolor="black", borderwidth=1, borderpad=2,
-                )
-
-                # Плашка на НИЖНЕЙ границе
-                fig.add_annotation(
-                    x=0.99, y=y_bottom,
-                    xref="x domain", yref="y",
-                    text=f" {y_bottom:.{decimals}f} ",
-                    showarrow=False,
-                    xanchor="right", yanchor="middle",
-                    bgcolor=label_bg,
-                    font=dict(color=label_fg, size=10, weight="bold"),
-                    bordercolor="black", borderwidth=1, borderpad=2,
-                )
+                    y_bottom = float(lvl["close"]); y_top = float(lvl["high"])
+                    zone_color = "rgba(255, 105, 180, 0.1)"; label_bg = "rgba(255, 105, 180, 0.95)"; label_fg = "black"
+                fig.add_shape(type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
+                    fillcolor=zone_color, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
+                fig.add_annotation(x=0.99, y=y_top, xref="x domain", yref="y",
+                    text=f" {y_top:.{decimals}f} ", showarrow=False, xanchor="right", yanchor="middle",
+                    bgcolor=label_bg, font=dict(color=label_fg, size=10, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=2)
+                fig.add_annotation(x=0.99, y=y_bottom, xref="x domain", yref="y",
+                    text=f" {y_bottom:.{decimals}f} ", showarrow=False, xanchor="right", yanchor="middle",
+                    bgcolor=label_bg, font=dict(color=label_fg, size=10, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=2)
             except Exception:
                 continue
 
-    # --- D1 КАНАЛ ---
     if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]; t2, p2 = d1_pts[1]; t3, p3 = d1_pts[2]
         x1_ts = pd.to_datetime(t1); x2_ts = pd.to_datetime(t2); x3_ts = pd.to_datetime(t3)
@@ -206,50 +186,34 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         time_end = dt_end.timestamp()
         y_ray1_end = slope_time * (time_end - time1) + p1
         y_ray2_end = slope_time * (time_end - time3) + p3
-        fig.add_shape(type="line", x0=x1_ts, y0=p1, x1=dt_end, y1=y_ray1_end,
-            line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1)
-        fig.add_shape(type="line", x0=x3_ts, y0=p3, x1=dt_end, y1=y_ray2_end,
-            line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1)
-        fig.add_trace(go.Scatter(x=[t1, t2, t3], y=[p1, p2, p3], mode='markers',
-            marker=dict(color='blue', size=10), name='Точки канала D1', showlegend=False), row=1, col=1)
+        fig.add_shape(type="line", x0=x1_ts, y0=p1, x1=dt_end, y1=y_ray1_end, line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1)
+        fig.add_shape(type="line", x0=x3_ts, y0=p3, x1=dt_end, y1=y_ray2_end, line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1)
+        fig.add_trace(go.Scatter(x=[t1, t2, t3], y=[p1, p2, p3], mode='markers', marker=dict(color='blue', size=10), name='Точки канала D1', showlegend=False), row=1, col=1)
 
-    # --- D1 FIB ---
     if d1_fib_pts and len(d1_fib_pts) == 2:
         t1, p1 = d1_fib_pts[0]; t2, p2 = d1_fib_pts[1]
         mid_price = (p1 + p2) / 2
         x1_ts = pd.to_datetime(t1)
-        fig.add_shape(type="line", x0=x1_ts, y0=mid_price, x1=dt_end, y1=mid_price,
-            line=dict(color="blue", width=2, dash="dash"), xref="x", yref="y", row=1, col=1)
-        fig.add_annotation(x=dt_end, y=mid_price, text="0.5 D1",
-            showarrow=False, xanchor="left", font=dict(color="blue", size=10), row=1, col=1)
+        fig.add_shape(type="line", x0=x1_ts, y0=mid_price, x1=dt_end, y1=mid_price, line=dict(color="blue", width=2, dash="dash"), xref="x", yref="y", row=1, col=1)
+        fig.add_annotation(x=dt_end, y=mid_price, text="0.5 D1", showarrow=False, xanchor="left", font=dict(color="blue", size=10), row=1, col=1)
 
-    # --- H1 FIB ---
     if h1_fib_pts and len(h1_fib_pts) == 2:
         t1, p1 = h1_fib_pts[0]; t2, p2 = h1_fib_pts[1]
         mid_price = (p1 + p2) / 2
         x1_ts = pd.to_datetime(t1)
-        fig.add_shape(type="line", x0=x1_ts, y0=mid_price, x1=dt_end, y1=mid_price,
-            line=dict(color="green", width=2, dash="dash"), xref="x", yref="y", row=1, col=1)
-        fig.add_annotation(x=dt_end, y=mid_price, text="0.5 H1",
-            showarrow=False, xanchor="left", font=dict(color="green", size=10), row=1, col=1)
+        fig.add_shape(type="line", x0=x1_ts, y0=mid_price, x1=dt_end, y1=mid_price, line=dict(color="green", width=2, dash="dash"), xref="x", yref="y", row=1, col=1)
+        fig.add_annotation(x=dt_end, y=mid_price, text="0.5 H1", showarrow=False, xanchor="left", font=dict(color="green", size=10), row=1, col=1)
 
-    # --- H1 ТЕНДЕНЦИЯ ---
     if h1_tend_pts:
         mx = [p[0] for p in h1_tend_pts]
         my = [p[1] for p in h1_tend_pts]
-        fig.add_trace(go.Scatter(x=mx, y=my, mode='lines+markers',
-            marker=dict(size=8, color='green', symbol='circle'),
-            line=dict(color='green', width=3), name='Тенденция (H1)'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=mx, y=my, mode='lines+markers', marker=dict(size=8, color='green', symbol='circle'), line=dict(color='green', width=3), name='Тенденция (H1)'), row=1, col=1)
 
-    # --- M10 ЗИГЗАГ ---
     if (is_h1 or is_m10) and m10_zig_pts:
         mx = [p[0] for p in m10_zig_pts]
         my = [p[1] for p in m10_zig_pts]
-        fig.add_trace(go.Scatter(x=mx, y=my, mode='lines+markers',
-            marker=dict(size=8, color='red', symbol='circle'),
-            line=dict(color='red', width=3), name='Зигзаг (M10)'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=mx, y=my, mode='lines+markers', marker=dict(size=8, color='red', symbol='circle'), line=dict(color='red', width=3), name='Зигзаг (M10)'), row=1, col=1)
 
-    # --- RR ЗОНЫ ---
     if show_rr and h1_tend_pts and len(h1_tend_pts) >= 2:
         if strategy == "Зигзаг тенденции":
             t_c, p_c = h1_tend_pts[-2]; t_d, p_d = h1_tend_pts[-1]
@@ -263,12 +227,9 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 color_bottom = "rgba(0, 128, 0, 0.1)"; color_top = "rgba(255, 0, 0, 0.1)"
             else:
                 color_bottom = "rgba(255, 0, 0, 0.1)"; color_top = "rgba(0, 128, 0, 0.1)"
-            fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
-                fillcolor=color_bottom, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
-            fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end,
-                fillcolor=color_top, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
+            fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end, fillcolor=color_bottom, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
+            fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=y3_start, y1=y3_end, fillcolor=color_top, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
 
-    # --- ПРОБОИ И ОТКАТЫ ---
     breakouts = []
     if is_h1 and h1_tend_pts:
         breakouts = analyze_manual_zigzag(h1_tend_pts, df_chart)
@@ -286,32 +247,17 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             breakout_text = f"Δ: {brk['breakout_magnitude']:.{decimals}f}{ratio_text}<br>Бар: {brk['breakout_bars']}<br>Vol: {brk['breakout_volume']:,.0f}<br>Оценка: <b>{v_text}</b>"
             peak_key = (brk['peak_time'], brk['peak_price'])
             if peak_key not in drawn_coords:
-                fig.add_annotation(x=brk['peak_time'], y=brk['peak_price'], text=breakout_text,
-                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
-                    ax=40, ay=-40, bgcolor=breakout_bg, font=dict(color="white", size=10),
-                    bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
+                fig.add_annotation(x=brk['peak_time'], y=brk['peak_price'], text=breakout_text, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout, ax=40, ay=-40, bgcolor=breakout_bg, font=dict(color="white", size=10), bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
                 drawn_coords.add(peak_key)
             res_key = (brk['resistance_time'], brk['resistance_price'])
             if res_key not in drawn_coords:
-                fig.add_annotation(x=brk['resistance_time'], y=brk['resistance_price'], text=breakout_text,
-                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
-                    ax=-40, ay=40, bgcolor=breakout_bg, font=dict(color="white", size=10),
-                    bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
+                fig.add_annotation(x=brk['resistance_time'], y=brk['resistance_price'], text=breakout_text, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout, ax=-40, ay=40, bgcolor=breakout_bg, font=dict(color="white", size=10), bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
                 drawn_coords.add(res_key)
-            fig.add_shape(type="line", x0=brk['resistance_time'], y0=brk['resistance_price'],
-                x1=brk['breakout_time'], y1=brk['resistance_price'],
-                line=dict(color=line_color_breakout, width=2), xref="x", yref="y", row=1, col=1)
-            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['resistance_price'],
-                x1=brk['breakout_time'], y1=brk['peak_price'],
-                line=dict(color=line_color_breakout, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
-            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['peak_price'],
-                x1=brk['peak_time'], y1=brk['peak_price'],
-                line=dict(color=line_color_breakout, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
+            fig.add_shape(type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], x1=brk['breakout_time'], y1=brk['resistance_price'], line=dict(color=line_color_breakout, width=2), xref="x", yref="y", row=1, col=1)
+            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], x1=brk['breakout_time'], y1=brk['peak_price'], line=dict(color=line_color_breakout, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
+            fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['peak_price'], x1=brk['peak_time'], y1=brk['peak_price'], line=dict(color=line_color_breakout, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
             mid_y_breakout = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
-            fig.add_annotation(x=brk['breakout_time'], y=mid_y_breakout,
-                text=f"Δ: {brk['breakout_magnitude']:.{decimals}f}",
-                showarrow=False, xanchor="right", xshift=-5,
-                font=dict(color=line_color_breakout, size=11, weight="bold"), row=1, col=1)
+            fig.add_annotation(x=brk['breakout_time'], y=mid_y_breakout, text=f"Δ: {brk['breakout_magnitude']:.{decimals}f}", showarrow=False, xanchor="right", xshift=-5, font=dict(color=line_color_breakout, size=11, weight="bold"), row=1, col=1)
             if brk['has_pullback']:
                 p_verdict = brk['pullback_verdict']
                 if p_verdict == "strong": pullback_bg = "rgba(25, 135, 84, 0.9)"
@@ -322,31 +268,19 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 pullback_text = f"Откат: {brk['retracement_pct']:.1f}%<br>Оценка: <b>{p_v_text}</b>"
                 pull_key = (brk['pullback_time'], brk['pullback_price'])
                 if pull_key not in drawn_coords:
-                    fig.add_annotation(x=brk['pullback_time'], y=brk['pullback_price'], text=pullback_text,
-                        showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
-                        ax=0, ay=40, bgcolor=pullback_bg, font=dict(color="white", size=10),
-                        bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
+                    fig.add_annotation(x=brk['pullback_time'], y=brk['pullback_price'], text=pullback_text, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback, ax=0, ay=40, bgcolor=pullback_bg, font=dict(color="white", size=10), bordercolor="black", borderwidth=1, borderpad=3, row=1, col=1)
                     drawn_coords.add(pull_key)
-                fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['peak_price'],
-                    x1=brk['peak_time'], y1=brk['pullback_price'],
-                    line=dict(color=line_color_pullback, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
-                fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['pullback_price'],
-                    x1=brk['pullback_time'], y1=brk['pullback_price'],
-                    line=dict(color=line_color_pullback, width=2), xref="x", yref="y", row=1, col=1)
+                fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['peak_price'], x1=brk['peak_time'], y1=brk['pullback_price'], line=dict(color=line_color_pullback, width=2, dash="dot"), xref="x", yref="y", row=1, col=1)
+                fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['pullback_price'], x1=brk['pullback_time'], y1=brk['pullback_price'], line=dict(color=line_color_pullback, width=2), xref="x", yref="y", row=1, col=1)
                 mid_y_pullback = brk['pullback_price'] + (brk['peak_price'] - brk['pullback_price']) / 2
-                fig.add_annotation(x=brk['peak_time'], y=mid_y_pullback,
-                    text=f"{brk['retracement_pct']:.1f}%",
-                    showarrow=False, xanchor="right", xshift=-5,
-                    font=dict(color=line_color_pullback, size=11, weight="bold"), row=1, col=1)
+                fig.add_annotation(x=brk['peak_time'], y=mid_y_pullback, text=f"{brk['retracement_pct']:.1f}%", showarrow=False, xanchor="right", xshift=-5, font=dict(color=line_color_pullback, size=11, weight="bold"), row=1, col=1)
 
-    # --- ОБЪЕМЫ ---
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
         times = df_chart.index
         for i in range(2, len(df_chart)):
-            if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]:
-                colors[i] = 'black'
+            if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]: colors[i] = 'black'
         if is_h1:
             for i in range(len(df_chart)):
                 if times[i].hour == 10 and times[i].minute == 0:
@@ -356,60 +290,41 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                             prev_10s.append(volumes[j])
                             if len(prev_10s) == 2: break
                     if len(prev_10s) == 2:
-                        if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
-                            colors[i] = 'black'
+                        if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]: colors[i] = 'black'
         if is_m10 or is_h1 or is_d1:
             vol_series = pd.Series(volumes)
             rolling_avg = vol_series.rolling(window=20, min_periods=5).mean().shift(1)
-            anomaly_color = None
-            if is_m10: anomaly_color = 'red'
-            elif is_h1: anomaly_color = 'green'
-            elif is_d1: anomaly_color = 'blue'
+            anomaly_color = 'red' if is_m10 else ('green' if is_h1 else 'blue')
             if anomaly_color:
                 for i in range(len(volumes)):
                     if pd.notna(rolling_avg.iloc[i]) and rolling_avg.iloc[i] > 0:
-                        if volumes[i] > rolling_avg.iloc[i] * 3.0:
-                            colors[i] = anomaly_color
+                        if volumes[i] > rolling_avg.iloc[i] * 3.0: colors[i] = anomaly_color
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'], marker_color=colors, name='Объем'), row=2, col=1)
 
-    fig.update_layout(
-        title=title, height=700, margin=dict(l=10, r=10, t=50, b=50),
-        plot_bgcolor='white', paper_bgcolor='white',
-        xaxis_rangeslider_visible=False, showlegend=False,
-        hovermode='closest', spikedistance=-1,
-    )
+    fig.update_layout(title=title, height=700, margin=dict(l=10, r=10, t=50, b=50),
+        plot_bgcolor='white', paper_bgcolor='white', xaxis_rangeslider_visible=False, showlegend=False,
+        hovermode='closest', spikedistance=-1)
 
     rangebreaks = [dict(bounds=["sat", "mon"])]
-    if is_intraday:
-        rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
-
+    if is_intraday: rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
     if len(df_chart) > 1:
         if is_intraday:
             first_day = df_chart.index[0].normalize()
             snap_start = first_day + pd.Timedelta(hours=7)
-            if snap_start > df_chart.index[0]:
-                snap_start -= pd.Timedelta(days=1)
+            if snap_start > df_chart.index[0]: snap_start -= pd.Timedelta(days=1)
             x_range = [snap_start, dt_end]
-        else:
-            x_range = [df_chart.index[0] - pd.Timedelta(days=1), dt_end]
-    else:
-        x_range = None
-
+        else: x_range = [df_chart.index[0] - pd.Timedelta(days=1), dt_end]
+    else: x_range = None
     y_min = df_chart['Low'].min(); y_max = df_chart['High'].max()
     y_padding = (y_max - y_min) * 0.10
     y_range = [y_min - y_padding, y_max + y_padding]
 
-    fig.update_xaxes(showgrid=True, gridcolor='lightgray', rangebreaks=rangebreaks, range=x_range,
-        showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash')
-    fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right', tickformat=tick_fmt,
-        showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash',
-        range=y_range, row=1, col=1)
-    fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right',
-        showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash',
-        row=2, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor='lightgray', rangebreaks=rangebreaks, range=x_range, showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash')
+    fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right', tickformat=tick_fmt, showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash', range=y_range, row=1, col=1)
+    fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right', showspikes=True, spikemode='across', spikesnap='cursor', spikecolor='gray', spikethickness=1, spikedash='dash', row=2, col=1)
     return fig, breakouts
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio, commission, strategy):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_pct, rr_ratio, commission, strategy):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
 
@@ -424,8 +339,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     margin_per_contract = get_margin(go_df, ticker, margin_type, "LONG")
     if margin_per_contract == 0 and not iss_row.empty:
         margin_per_contract = to_float(iss_row.iloc[0].get("INITIALMARGIN", 0))
-    if margin_per_contract == 0:
-        margin_per_contract = 25000.0
+    if margin_per_contract == 0: margin_per_contract = 25000.0
 
     step_price = to_float(vlookup(api_df, ticker, 6)) or 10.0
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
@@ -435,12 +349,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     ticker_cache = cache.get(ticker, {})
 
     pts_keys = {
-        "d1_chan": f"manual_channel_{ticker}_D1",
-        "d1_fib": f"manual_fib_{ticker}_D1",
-        "h1_tend": f"manual_tend_{ticker}_H1",
-        "h1_fib": f"manual_fib_{ticker}_H1",
-        "m10_zig": f"manual_zig_{ticker}_M10",
-        "h1_levels": f"manual_levels_{ticker}_H1",
+        "d1_chan": f"manual_channel_{ticker}_D1", "d1_fib": f"manual_fib_{ticker}_D1",
+        "h1_tend": f"manual_tend_{ticker}_H1", "h1_fib": f"manual_fib_{ticker}_H1",
+        "m10_zig": f"manual_zig_{ticker}_M10", "h1_levels": f"manual_levels_{ticker}_H1",
     }
     cache_keys = {
         "d1_chan": "d1_manual_pts", "d1_fib": "d1_fib_pts",
@@ -451,15 +362,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     for k, skey in pts_keys.items():
         if skey not in st.session_state:
             cached_pts = ticker_cache.get(cache_keys[k], [])
-            if k == "h1_levels":
-                st.session_state[skey] = cached_pts if isinstance(cached_pts, list) else []
-            else:
-                st.session_state[skey] = [(pd.to_datetime(t), float(p)) for t, p in cached_pts]
+            if k == "h1_levels": st.session_state[skey] = cached_pts if isinstance(cached_pts, list) else []
+            else: st.session_state[skey] = [(pd.to_datetime(t), float(p)) for t, p in cached_pts]
 
     for k in pts_keys.keys():
-        undo_k = f"undo_{k}_{ticker}"
-        redo_k = f"redo_{k}_{ticker}"
-        deb_k = f"debounce_{k}_{ticker}"
+        undo_k = f"undo_{k}_{ticker}"; redo_k = f"redo_{k}_{ticker}"; deb_k = f"debounce_{k}_{ticker}"
         if undo_k not in st.session_state: st.session_state[undo_k] = []
         if redo_k not in st.session_state: st.session_state[redo_k] = []
         if deb_k not in st.session_state: st.session_state[deb_k] = 0.0
@@ -500,18 +407,13 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             c_tools, c_toggles = st.columns([2, 2])
             with c_tools:
                 if is_d1:
-                    active_tool = st.radio("Инструмент (D1)", ["Нет", "D1: Канал", "D1: Уровень 1/2"],
-                        horizontal=True, key=key("active_tool_d1"))
+                    active_tool = st.radio("Инструмент (D1)", ["Нет", "D1: Канал", "D1: Уровень 1/2"], horizontal=True, key=key("active_tool_d1"))
                     active_k = {"D1: Канал": "d1_chan", "D1: Уровень 1/2": "d1_fib"}.get(active_tool)
                 elif is_h1:
-                    active_tool = st.radio("Инструмент (H1)",
-                        ["Нет", "H1: Тенденция", "H1: Уровень 1/2", "Уровни покупателя/продавца"],
-                        horizontal=True, key=key("active_tool_h1"))
-                    active_k = {"H1: Тенденция": "h1_tend", "H1: Уровень 1/2": "h1_fib",
-                                "Уровни покупателя/продавца": "h1_levels"}.get(active_tool)
+                    active_tool = st.radio("Инструмент (H1)", ["Нет", "H1: Тенденция", "H1: Уровень 1/2", "Уровни покупателя/продавца"], horizontal=True, key=key("active_tool_h1"))
+                    active_k = {"H1: Тенденция": "h1_tend", "H1: Уровень 1/2": "h1_fib", "Уровни покупателя/продавца": "h1_levels"}.get(active_tool)
                 else:
-                    active_tool = st.radio("Инструмент (M10)", ["Нет", "M10: Зигзаг"],
-                        horizontal=True, key=key("active_tool_m10"))
+                    active_tool = st.radio("Инструмент (M10)", ["Нет", "M10: Зигзаг"], horizontal=True, key=key("active_tool_m10"))
                     active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
 
             with c_toggles:
@@ -561,10 +463,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 continue
 
             zoom_start = None
-            if tf_name == "H1" and len(d1_pts) == 3:
-                zoom_start = d1_pts[1][0]
-            elif tf_name == "M10" and len(h1_pts) >= 4:
-                zoom_start = h1_pts[-4][0]
+            if tf_name == "H1" and len(d1_pts) == 3: zoom_start = d1_pts[1][0]
+            elif tf_name == "M10" and len(h1_pts) >= 4: zoom_start = h1_pts[-4][0]
 
             last_ts = df_candles.index[-1]
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
@@ -575,22 +475,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
 
                 if not show_tools:
-                    d1_pts_view = None; d1_fib_view = None
-                    h1_tend_view = None; h1_fib_view = None
-                    m10_zig_view = None; h1_levels_view = None
+                    d1_pts_view = None; d1_fib_view = None; h1_tend_view = None; h1_fib_view = None; m10_zig_view = None; h1_levels_view = None
                 else:
-                    d1_pts_view = d1_pts; d1_fib_view = d1_fib
-                    h1_tend_view = h1_pts; h1_fib_view = h1_fib
-                    m10_zig_view = m10_zig; h1_levels_view = h1_levels
+                    d1_pts_view = d1_pts; d1_fib_view = d1_fib; h1_tend_view = h1_pts; h1_fib_view = h1_fib; m10_zig_view = m10_zig; h1_levels_view = h1_levels
 
-                fig, breakouts = draw_chart(df_candles, title=f"{ticker} — {tf_name}",
-                    is_intraday=cfg["is_intraday"], decimals=decimals,
-                    is_h1=is_h1, is_m10=is_m10, is_d1=is_d1, ticker=ticker,
-                    d1_pts=d1_pts_view, d1_fib_pts=d1_fib_view,
-                    h1_tend_pts=h1_tend_view, h1_fib_pts=h1_fib_view,
-                    m10_zig_pts=m10_zig_view, h1_levels=h1_levels_view,
-                    strategy=strategy, zoom_start_time=zoom_start,
-                    show_rr=show_rr, show_levels=show_levels)
+                fig, breakouts = draw_chart(df_candles, title=f"{ticker} — {tf_name}", is_intraday=cfg["is_intraday"], decimals=decimals, is_h1=is_h1, is_m10=is_m10, is_d1=is_d1, ticker=ticker, d1_pts=d1_pts_view, d1_fib_pts=d1_fib_view, h1_tend_pts=h1_tend_view, h1_fib_pts=h1_fib_view, m10_zig_pts=m10_zig_view, h1_levels=h1_levels_view, strategy=strategy, zoom_start_time=zoom_start, show_rr=show_rr, show_levels=show_levels)
 
                 if fig:
                     if active_k and show_tools:
@@ -611,14 +500,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             pts = st.session_state[active_skey]
 
                             if active_k == "h1_levels":
-                                new_level = {
-                                    "time": str(bar.name),
-                                    "open": float(bar['Open']),
-                                    "high": float(bar['High']),
-                                    "low": float(bar['Low']),
-                                    "close": float(bar['Close']),
-                                    "is_buy": bool(bar['Close'] > bar['Open']),
-                                }
+                                new_level = {"time": str(bar.name), "open": float(bar['Open']), "high": float(bar['High']), "low": float(bar['Low']), "close": float(bar['Close']), "is_buy": bool(bar['Close'] > bar['Open'])}
                                 new_pts = pts + [new_level]
                                 st.session_state[active_undo].append(pts.copy())
                                 st.session_state[active_redo] = []
@@ -683,23 +565,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     if is_h1 and breakouts and show_tools:
                         st.markdown("---")
                         st.markdown("#### Анализ пробоев и откатов H1")
-                        df_metrics = pd.DataFrame([{
-                            "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
-                            "Уровень сопр.": b["resistance_price"],
-                            "Пик (D)": b["peak_price"],
-                            "Δ Пробоя": b["breakout_magnitude"],
-                            "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b["breakout_verdict"], "-"),
-                            "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-",
-                            "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                            "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b["pullback_verdict"], "-") if b["has_pullback"] else "-"
-                        } for b in breakouts])
-                        st.dataframe(df_metrics, use_container_width=True, hide_index=True,
-                            column_config={
-                                "Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Откат (E)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                            })
+                        df_metrics = pd.DataFrame([{"Направление": "Вверх" if b["trend"] == "up" else "Вниз", "Уровень сопр.": b["resistance_price"], "Пик (D)": b["peak_price"], "Δ Пробоя": b["breakout_magnitude"], "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b["breakout_verdict"], "-"), "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-", "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-", "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b["pullback_verdict"], "-") if b["has_pullback"] else "-"} for b in breakouts])
+                        st.dataframe(df_metrics, use_container_width=True, hide_index=True, column_config={"Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"), "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"), "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"), "Откат (E)": st.column_config.NumberColumn(format=f"%.{decimals}f")})
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
@@ -717,12 +584,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     if h1_trend_dir is None:
         st.info("Нарисуйте минимум 2 точки H1: Тенденции для определения тренда")
     else:
-        is_trend_trade = (h1_trend_dir == "up" and direction == "LONG") or \
-                         (h1_trend_dir == "down" and direction == "SHORT")
-        if is_trend_trade:
-            st.success(f"### Трендовая сделка ({direction})")
-        else:
-            st.error(f"### Контртрендовая сделка ({direction})")
+        is_trend_trade = (h1_trend_dir == "up" and direction == "LONG") or (h1_trend_dir == "down" and direction == "SHORT")
+        if is_trend_trade: st.success(f"### Трендовая сделка ({direction})")
+        else: st.error(f"### Контртрендовая сделка ({direction})")
 
     st.markdown("### Точки входа")
     entries_raw_key = key("entries_raw")
@@ -740,8 +604,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         column_config={
             "Цена входа": st.column_config.NumberColumn(format=f"%.{decimals}f", min_value=0.0),
             "Контрактов": st.column_config.NumberColumn(min_value=0, step=1),
-            "Стоимость позиции": st.column_config.NumberColumn(format="%.0f ₽", disabled=True),
-            "ГО в ₽": st.column_config.NumberColumn(format="%.0f ₽", disabled=True),
+            "Стоимость позиции": st.column_config.NumberColumn(format="%.2f ₽", disabled=True),
+            "ГО в ₽": st.column_config.NumberColumn(format="%.2f ₽", disabled=True),
             "ГО в %": st.column_config.NumberColumn(format="%.2f%%", disabled=True),
         }, key=key("entries_editor"))
     st.session_state[entries_raw_key] = edited_entries[["Цена входа", "Контрактов"]].copy()
@@ -756,46 +620,74 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         margin_used = total_contracts * margin_per_contract
         margin_pct = _div(margin_used, deposit) * 100
         position_value = avg_entry * multiplier * total_contracts
+        leverage = _div(position_value, margin_used)
 
         st.markdown("### Уровни SL и TP")
         col_sl, col_tp = st.columns(2)
-        sl_price = col_sl.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price),
-            key=key("sl_price"), format=f"%.{decimals}f")
-        tp_price = col_tp.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price),
-            key=key("tp_price"), format=f"%.{decimals}f")
+        sl_price = col_sl.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
+        tp_price = col_tp.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
 
+        # Комиссии
+        comm_entry = calc_commission(avg_entry, multiplier, commission)
+        comm_sl = calc_commission(sl_price, multiplier, commission)
+        comm_tp = calc_commission(tp_price, multiplier, commission)
+        
+        total_comm_entry = comm_entry * total_contracts
+        total_comm_sl = comm_sl * total_contracts
+        total_comm_tp = comm_tp * total_contracts
+
+        # Убыток и Прибыль с учетом комиссий
         if direction == "LONG":
-            profit_per_contract = (tp_price - avg_entry) * multiplier
-            loss_per_contract = (avg_entry - sl_price) * multiplier
+            gross_profit = (tp_price - avg_entry) * multiplier * total_contracts
+            gross_loss = (avg_entry - sl_price) * multiplier * total_contracts
         else:
-            profit_per_contract = (avg_entry - tp_price) * multiplier
-            loss_per_contract = (sl_price - avg_entry) * multiplier
+            gross_profit = (avg_entry - tp_price) * multiplier * total_contracts
+            gross_loss = (sl_price - avg_entry) * multiplier * total_contracts
 
-        total_profit = profit_per_contract * total_contracts
-        total_loss = loss_per_contract * total_contracts
-        actual_rr = _div(abs(total_profit), abs(total_loss)) if total_loss > 0 else 0
+        net_profit = gross_profit - total_comm_entry - total_comm_tp
+        net_loss = gross_loss + total_comm_entry + total_comm_sl
+        
+        actual_rr = _div(abs(net_profit), abs(net_loss)) if net_loss > 0 else 0
+
+        # Бюджет риска и расчет макс. контрактов
+        risk_budget = deposit * (risk_pct / 100)
+        loss_per_contract = abs(net_loss / total_contracts) if total_contracts > 0 else 1
+        max_contracts_by_risk = int(risk_budget / loss_per_contract) if loss_per_contract > 0 else 0
 
         st.markdown("### Результаты")
-        c1, c2, c3 = st.columns(3)
+        
+        # Основные метрики
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Средний вход", f"{avg_entry:,.{decimals}f}")
         c2.metric("Всего контрактов", f"{total_contracts}")
-        c3.metric("Стоимость позиции", f"{position_value:,.0f} ₽")
+        c3.metric("Стоимость позиции", f"{position_value:,.2f} ₽")
+        c4.metric("Плечо", f"{leverage:.1f}x")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("ГО в рублях", f"{margin_used:,.0f} ₽")
+        # ГО и Комиссии
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("ГО в рублях", f"{margin_used:,.2f} ₽")
         c2.metric("ГО от счета", f"{margin_pct:.2f}%")
-        c3.metric("ГО на контракт", f"{margin_per_contract:,.0f} ₽")
+        c3.metric("Комиссия (вход+выход)", f"{total_comm_entry + total_comm_sl:,.2f} ₽")
+        c4.metric("Макс. контрактов", f"{max_contracts_by_risk}")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Убыток (SL)", f"−{abs(total_loss):,.0f} ₽")
-        c2.metric("Прибыль (TP)", f"+{abs(total_profit):,.0f} ₽")
+        # PnL и Риск
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Чистый убыток (SL)", f"−{abs(net_loss):,.2f} ₽")
+        c2.metric("Чистая прибыль (TP)", f"+{abs(net_profit):,.2f} ₽")
         c3.metric("RR факт", f"1:{actual_rr:.2f}" if actual_rr > 0 else "—")
+        c4.metric("Бюджет риска", f"{risk_budget:,.2f} ₽")
+
+        # ПРЕДУПРЕЖДЕНИЯ
+        if abs(net_loss) > risk_budget:
+            st.error(f"⛔ **Превышен допустимый риск!** Убыток по стопу ({abs(net_loss):,.2f} ₽) больше бюджета риска ({risk_budget:,.2f} ₽). Сократите количество контрактов до {max_contracts_by_risk}.")
+        else:
+            st.success(f"✅ Риск в норме. Убыток ({abs(net_loss):,.2f} ₽) не превышает бюджет ({risk_budget:,.2f} ₽).")
 
         if actual_rr > 0:
             if actual_rr >= rr_ratio:
-                st.success(f"RR соответствует норме (≥ 1:{rr_ratio})")
+                st.success(f"✅ RR соответствует норме (≥ 1:{rr_ratio})")
             else:
-                st.warning(f"RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
+                st.warning(f"⚠️ RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
 
     # ========== СОХРАНЕНИЕ В JSON ==========
     final_state = {
