@@ -109,41 +109,6 @@ def get_sperandeo_geometry(df, trend_direction):
         
     return None, None, None, None, []
 
-def get_auto_h1_zigzag(df, depth=3, deviation_pct=0.005):
-    """Автоматический поиск зигзага для H1 (настройки TW)."""
-    if len(df) < depth * 2:
-        return [], []
-        
-    highs = df['High'].values
-    lows = df['Low'].values
-    times = df.index
-    
-    pivots = []
-    for i in range(depth, len(df) - depth):
-        is_high = all(highs[i] >= highs[i-j] for j in range(1, depth+1)) and \
-                  all(highs[i] >= highs[i+j] for j in range(1, depth+1))
-        is_low = all(lows[i] <= lows[i-j] for j in range(1, depth+1)) and \
-                 all(lows[i] <= lows[i+j] for j in range(1, depth+1))
-                 
-        if is_high:
-            pivots.append((times[i], highs[i]))
-        elif is_low:
-            pivots.append((times[i], lows[i]))
-            
-    # Фильтрация по отклонению (Deviation)
-    filtered = []
-    if not pivots:
-        return [], []
-        
-    filtered.append(pivots[0])
-    for p in pivots[1:]:
-        last = filtered[-1]
-        if (p[1] > last[1] and p[1] - last[1] >= last[1] * deviation_pct) or \
-           (p[1] < last[1] and last[1] - p[1] >= last[1] * deviation_pct):
-            filtered.append(p)
-            
-    return [p[0] for p in filtered], [p[1] for p in filtered]
-
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False, is_d1=False, ticker=""):
     if df_chart.empty:
         return None
@@ -180,30 +145,18 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг ABCD'
         ), row=1, col=1)
 
-    # --- АВТО-ЗИГЗАГ H1 ---
-    if is_h1:
-        h1_x, h1_y = get_auto_h1_zigzag(df_chart)
-        if h1_x:
-            fig.add_trace(go.Scatter(
-                x=h1_x, y=h1_y,
-                mode='lines+markers',
-                marker=dict(size=5, color='orange'),
-                line=dict(color='orange', width=2, dash='dot'),
-                name='Авто-зигзаг H1'
-            ), row=1, col=1)
-
-    # --- РУЧНОЙ ЗИГЗАГ (КЛИКИ) ---
+    # --- РУЧНОЙ ЗИГЗАГ (КРАСНЫЙ) ---
     manual_points_key = f"manual_zigzag_{ticker}_H1"
-    if manual_points_key in st.session_state and st.session_state[manual_points_key]:
+    if is_h1 and manual_points_key in st.session_state and st.session_state[manual_points_key]:
         pts = st.session_state[manual_points_key]
         mx = [p[0] for p in pts]
         my = [p[1] for p in pts]
         fig.add_trace(go.Scatter(
             x=mx, y=my,
             mode='lines+markers',
-            marker=dict(size=8, color='magenta', symbol='x'),
-            line=dict(color='magenta', width=3),
-            name='Ручной зигзаг'
+            marker=dict(size=8, color='red', symbol='circle'),
+            line=dict(color='red', width=3),
+            name='Ручной зигзаг (H1)'
         ), row=1, col=1)
 
     # ЛОГИКА РАСКРАСКИ ОБЪЕМОВ
@@ -326,7 +279,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         title=title, height=700,
         margin=dict(l=10, r=10, t=50, b=50),
         plot_bgcolor='white', paper_bgcolor='white',
-        xaxis_rangeslider_visible=False, showlegend=True, # Включаем легенду для зигзагов
+        xaxis_rangeslider_visible=False, showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode='closest', spikedistance=-1,
     )
@@ -552,41 +505,46 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     is_d1=is_d1,
                     ticker=ticker
                 )
+                
                 if fig:
                     if is_h1:
-                        # Включаем интерактивный выбор точек для H1
-                        event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
-                        
-                        if event and event["selection"]["points"]:
-                            pt = event["selection"]["points"][0]
-                            clicked_time = pd.to_datetime(pt["x"])
-                            clicked_y = pt["y"]
-                            
-                            # Поиск ближайшего бара
-                            df_h1_view = df_candles.tail(150).copy()
-                            idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
-                            bar = df_h1_view.iloc[idx]
-                            
-                            # МАГНИТ: Притягиваем к High или Low
-                            if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']):
-                                snapped_y = float(bar['High'])
-                            else:
-                                snapped_y = float(bar['Low'])
-                                
-                            manual_points_key = f"manual_zigzag_{ticker}_H1"
-                            if manual_points_key not in st.session_state:
-                                st.session_state[manual_points_key] = []
-                                
-                            # Добавляем точку (если кликнули в другом месте)
-                            new_pt = (bar.name, snapped_y)
-                            if not st.session_state[manual_points_key] or st.session_state[manual_points_key][-1] != new_pt:
-                                st.session_state[manual_points_key].append(new_pt)
+                        # Управление режимом рисования
+                        col1, col2 = st.columns([1, 1])
+                        with col1:
+                            draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
+                        with col2:
+                            if st.button("🗑️ Очистить зигзаг", key=f"clear_{ticker}_H1"):
+                                st.session_state[f"manual_zigzag_{ticker}_H1"] = []
                                 st.rerun()
+
+                        if draw_mode:
+                            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
+                            
+                            if event and event["selection"]["points"]:
+                                pt = event["selection"]["points"][0]
+                                clicked_time = pd.to_datetime(pt["x"])
+                                clicked_y = pt["y"]
                                 
-                        # Кнопка очистки ручного зигзага
-                        if st.button("Очистить ручной зигзаг H1", key=f"clear_{ticker}_H1"):
-                            st.session_state[f"manual_zigzag_{ticker}_H1"] = []
-                            st.rerun()
+                                df_h1_view = df_candles.tail(150).copy()
+                                idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
+                                bar = df_h1_view.iloc[idx]
+                                
+                                # МАГНИТ
+                                if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']):
+                                    snapped_y = float(bar['High'])
+                                else:
+                                    snapped_y = float(bar['Low'])
+                                    
+                                manual_points_key = f"manual_zigzag_{ticker}_H1"
+                                if manual_points_key not in st.session_state:
+                                    st.session_state[manual_points_key] = []
+                                    
+                                new_pt = (bar.name, snapped_y)
+                                if not st.session_state[manual_points_key] or st.session_state[manual_points_key][-1] != new_pt:
+                                    st.session_state[manual_points_key].append(new_pt)
+                                    st.rerun()
+                        else:
+                            st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
