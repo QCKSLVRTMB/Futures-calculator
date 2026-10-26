@@ -41,7 +41,6 @@ def analyze_manual_zigzag(pts, df):
         b_time, b_price = p_b
         c_time, c_price = p_c
         d_time, d_price = p_d
-
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             breakout_magnitude = d_price - b_price
@@ -92,7 +91,6 @@ def analyze_manual_zigzag(pts, df):
                 "pullback_time": e_time, "pullback_price": e_price,
                 "retracement_pct": retracement_pct, "pullback_verdict": pullback_verdict,
             })
-
     for i, brk in enumerate(breakouts):
         if i == 0:
             brk['breakout_verdict'] = "base"
@@ -147,23 +145,53 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # --- УРОВНИ ПОКУПАТЕЛЯ/ПРОДАВЦА (рисуем ДО остальных, чтобы были под ними) ---
+    # --- УРОВНИ ПОКУПАТЕЛЯ/ПРОДАВЦА + ПЛАШКИ НА ШКАЛЕ ---
     if show_levels and h1_levels:
         for lvl in h1_levels:
             try:
                 t_start = pd.to_datetime(lvl["time"])
                 if lvl["is_buy"]:
-                    y0 = float(lvl["low"])
-                    y1 = float(lvl["close"])
-                    color = "rgba(128, 0, 128, 0.1)"  # Фиолетовый
+                    y_bottom = float(lvl["low"])
+                    y_top = float(lvl["close"])
+                    zone_color = "rgba(128, 0, 128, 0.1)"
+                    label_bg = "rgba(128, 0, 128, 0.95)"
+                    label_fg = "white"
                 else:
-                    y0 = float(lvl["close"])
-                    y1 = float(lvl["high"])
-                    color = "rgba(255, 105, 180, 0.1)"  # Розовый
+                    y_bottom = float(lvl["close"])
+                    y_top = float(lvl["high"])
+                    zone_color = "rgba(255, 105, 180, 0.1)"
+                    label_bg = "rgba(255, 105, 180, 0.95)"
+                    label_fg = "black"
+
+                # Зона от начала бара до правого края
                 fig.add_shape(
-                    type="rect", x0=t_start, x1=dt_end, y0=y0, y1=y1,
-                    fillcolor=color, line=dict(width=0),
+                    type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
+                    fillcolor=zone_color, line=dict(width=0),
                     layer="below", xref="x", yref="y", row=1, col=1
+                )
+
+                # Плашка на ВЕРХНЕЙ границе
+                fig.add_annotation(
+                    x=0.99, y=y_top,
+                    xref="x domain", yref="y",
+                    text=f" {y_top:.{decimals}f} ",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    bgcolor=label_bg,
+                    font=dict(color=label_fg, size=10, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=2,
+                )
+
+                # Плашка на НИЖНЕЙ границе
+                fig.add_annotation(
+                    x=0.99, y=y_bottom,
+                    xref="x domain", yref="y",
+                    text=f" {y_bottom:.{decimals}f} ",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    bgcolor=label_bg,
+                    font=dict(color=label_fg, size=10, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=2,
                 )
             except Exception:
                 continue
@@ -583,7 +611,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             pts = st.session_state[active_skey]
 
                             if active_k == "h1_levels":
-                                # Специальная логика для уровней
                                 new_level = {
                                     "time": str(bar.name),
                                     "open": float(bar['Open']),
@@ -688,14 +715,14 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         elif last_move < 0: h1_trend_dir = "down"
 
     if h1_trend_dir is None:
-        st.info("📊 Нарисуйте минимум 2 точки H1: Тенденции для определения тренда")
+        st.info("Нарисуйте минимум 2 точки H1: Тенденции для определения тренда")
     else:
         is_trend_trade = (h1_trend_dir == "up" and direction == "LONG") or \
                          (h1_trend_dir == "down" and direction == "SHORT")
         if is_trend_trade:
-            st.success(f"### 🟢 Трендовая сделка ({direction})")
+            st.success(f"### Трендовая сделка ({direction})")
         else:
-            st.error(f"### 🔴 Контртрендовая сделка ({direction})")
+            st.error(f"### Контртрендовая сделка ({direction})")
 
     st.markdown("### Точки входа")
     entries_raw_key = key("entries_raw")
@@ -766,9 +793,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
         if actual_rr > 0:
             if actual_rr >= rr_ratio:
-                st.success(f"✅ RR соответствует норме (≥ 1:{rr_ratio})")
+                st.success(f"RR соответствует норме (≥ 1:{rr_ratio})")
             else:
-                st.warning(f"⚠️ RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
+                st.warning(f"RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
 
     # ========== СОХРАНЕНИЕ В JSON ==========
     final_state = {
