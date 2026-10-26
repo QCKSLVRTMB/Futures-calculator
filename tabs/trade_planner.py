@@ -10,7 +10,7 @@ from data import vlookup, to_float, get_margin, fetch_moex_candles, load_trend_c
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
     "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True},
-    "M10": {"interval": 10, "days_back": 5,   "is_intraday": True},
+    "M10": {"interval": 10, "days_back": 30,  "is_intraday": True}, # Увеличили days_back
 }
 
 def _div(a, b, default=0.0):
@@ -95,7 +95,7 @@ def analyze_manual_zigzag(pts, df):
             
     return breakouts
 
-def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None):
+def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_tend_pts=None, h1_fib_pts=None, m10_zig_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None):
     if df_chart.empty:
         return None, []
 
@@ -126,7 +126,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1 (по 3 точкам)
+    # 1. Канал D1 (по 3 точкам)
     if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]
         t2, p2 = d1_pts[1]
@@ -169,7 +169,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Точки канала D1', showlegend=False
         ), row=1, col=1)
 
-    # Fib 0.5 D1
+    # 2. Fib 0.5 D1
     if d1_fib_pts and len(d1_fib_pts) == 2:
         t1, p1 = d1_fib_pts[0]
         t2, p2 = d1_fib_pts[1]
@@ -188,7 +188,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # Fib 0.5 H1
+    # 3. Fib 0.5 H1
     if h1_fib_pts and len(h1_fib_pts) == 2:
         t1, p1 = h1_fib_pts[0]
         t2, p2 = h1_fib_pts[1]
@@ -207,31 +207,38 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # Ручной зигзаг H1 и Зоны RR
-    manual_points_key = f"manual_zigzag_{ticker}_H1"
-    manual_pts = []
-    if (is_h1 or is_m10) and manual_points_key in st.session_state and st.session_state[manual_points_key]:
-        manual_pts = st.session_state[manual_points_key]
-        
-        if is_h1:
-            mx = [p[0] for p in manual_pts]
-            my = [p[1] for p in manual_pts]
-            fig.add_trace(go.Scatter(
-                x=mx, y=my,
-                mode='lines+markers',
-                marker=dict(size=8, color='red', symbol='circle'),
-                line=dict(color='red', width=3),
-                name='Ручной зигзаг (H1)'
-            ), row=1, col=1)
+    # 4. H1 Тенденция (Зеленая)
+    if h1_tend_pts:
+        mx = [p[0] for p in h1_tend_pts]
+        my = [p[1] for p in h1_tend_pts]
+        fig.add_trace(go.Scatter(
+            x=mx, y=my,
+            mode='lines+markers',
+            marker=dict(size=8, color='green', symbol='circle'),
+            line=dict(color='green', width=3),
+            name='Тенденция (H1)'
+        ), row=1, col=1)
 
-        # Отрисовка зон RR
-        if len(manual_pts) >= 2:
+    # 5. M10 Зигзаг (Красный)
+    if (is_h1 or is_m10) and m10_zig_pts:
+        mx = [p[0] for p in m10_zig_pts]
+        my = [p[1] for p in m10_zig_pts]
+        fig.add_trace(go.Scatter(
+            x=mx, y=my,
+            mode='lines+markers',
+            marker=dict(size=8, color='red', symbol='circle'),
+            line=dict(color='red', width=3),
+            name='Зигзаг (M10)'
+        ), row=1, col=1)
+
+        # Отрисовка зон RR по M10 Зигзагу
+        if len(m10_zig_pts) >= 2:
             if strategy == "Зигзаг тенденции":
-                t_c, p_c = manual_pts[-2]
-                t_d, p_d = manual_pts[-1]
+                t_c, p_c = m10_zig_pts[-2]
+                t_d, p_d = m10_zig_pts[-1]
             else:
-                t_c, p_c = manual_pts[0]
-                t_d, p_d = manual_pts[-1]
+                t_c, p_c = m10_zig_pts[0]
+                t_d, p_d = m10_zig_pts[-1]
 
             low = min(p_c, p_d)
             high = max(p_c, p_d)
@@ -242,11 +249,11 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 y3_start, y3_end = low + 2*diff/3, high
                 
                 if p_d > p_c:
-                    color_bottom = "rgba(0, 128, 0, 0.1)"  # Зеленый
-                    color_top = "rgba(255, 0, 0, 0.1)"     # Красный
+                    color_bottom = "rgba(0, 128, 0, 0.1)"
+                    color_top = "rgba(255, 0, 0, 0.1)"
                 else:
-                    color_bottom = "rgba(255, 0, 0, 0.1)"  # Красный
-                    color_top = "rgba(0, 128, 0, 0.1)"     # Зеленый
+                    color_bottom = "rgba(255, 0, 0, 0.1)"
+                    color_top = "rgba(0, 128, 0, 0.1)"
 
                 fig.add_shape(
                     type="rect", x0=t_c, x1=t_d, y0=y1_start, y1=y1_end,
@@ -260,9 +267,10 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     layer="below", xref="x", yref="y", row=1, col=1
                 )
 
+    # 6. Пробои и откаты по H1 Тенденции
     breakouts = []
-    if is_h1 and manual_pts:
-        breakouts = analyze_manual_zigzag(manual_pts, df_chart)
+    if is_h1 and h1_tend_pts:
+        breakouts = analyze_manual_zigzag(h1_tend_pts, df_chart)
         
         drawn_coords = set()
         
@@ -506,15 +514,17 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     pts_keys = {
         "d1_chan": f"manual_channel_{ticker}_D1",
         "d1_fib": f"manual_fib_{ticker}_D1",
-        "h1_zig": f"manual_zigzag_{ticker}_H1",
+        "h1_tend": f"manual_tend_{ticker}_H1",
         "h1_fib": f"manual_fib_{ticker}_H1",
+        "m10_zig": f"manual_zig_{ticker}_M10",
     }
     
     cache_keys = {
         "d1_chan": "d1_manual_pts",
         "d1_fib": "d1_fib_pts",
-        "h1_zig": "h1_manual_pts",
+        "h1_tend": "h1_tend_pts",
         "h1_fib": "h1_fib_pts",
+        "m10_zig": "m10_zig_pts",
     }
 
     for k, skey in pts_keys.items():
@@ -530,7 +540,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         if redo_k not in st.session_state: st.session_state[redo_k] = []
         if deb_k not in st.session_state: st.session_state[deb_k] = 0.0
 
-    h1_pts = st.session_state.get(pts_keys["h1_zig"], [])
+    h1_pts = st.session_state.get(pts_keys["h1_tend"], [])
     d1_pts = st.session_state.get(pts_keys["d1_chan"], [])
 
     p_a, p_b, p_c, p_d = None, None, None, None
@@ -541,7 +551,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         p_d = h1_pts[-1][1]
 
     with st.expander("Техническая аналитика графика", expanded=False):
-        st.markdown("**Последние 4 точки зигзага тенденции (H1):**")
+        st.markdown("**Последние 4 точки Тенденции (H1):**")
         c1, c2, c3, c4 = st.columns(4)
         
         val_a = f"{p_a:.{decimals}f}" if p_a is not None else "-"
@@ -558,15 +568,16 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     active_tool = st.radio(
         "Выберите инструмент для рисования", 
-        ["Нет", "D1: Канал", "D1: Уровень 1/2", "H1: Зигзаг", "H1: Уровень 1/2"],
+        ["Нет", "D1: Канал", "D1: Уровень 1/2", "H1: Тенденция", "H1: Уровень 1/2", "M10: Зигзаг"],
         horizontal=True, key=key("active_tool")
     )
 
     tool_map = {
         "D1: Канал": ("d1_chan", 3),
         "D1: Уровень 1/2": ("d1_fib", 2),
-        "H1: Зигзаг": ("h1_zig", None),
-        "H1: Уровень 1/2": ("h1_fib", 2)
+        "H1: Тенденция": ("h1_tend", None),
+        "H1: Уровень 1/2": ("h1_fib", 2),
+        "M10: Зигзаг": ("m10_zig", None)
     }
     
     if active_tool != "Нет":
@@ -631,6 +642,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 
                 d1_fib = st.session_state.get(pts_keys["d1_fib"], [])
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
+                m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
                 
                 fig, breakouts = draw_chart(
                     df_candles,
@@ -643,7 +655,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     ticker=ticker,
                     d1_pts=d1_pts,
                     d1_fib_pts=d1_fib,
+                    h1_tend_pts=h1_pts,
                     h1_fib_pts=h1_fib,
+                    m10_zig_pts=m10_zig,
                     strategy=strategy,
                     zoom_start_time=zoom_start
                 )
@@ -662,7 +676,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             clicked_time = pd.to_datetime(pt["x"])
                             clicked_y = pt["y"]
                             
-                            # ИСПРАВЛЕНИЕ: Берем полный датафрейм, а не tail(150)
                             df_view = df_candles.copy()
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             bar = df_view.iloc[idx]
@@ -671,7 +684,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             new_pts = pts.copy()
                             
                             if max_pts is None or len(new_pts) < max_pts:
-                                if active_k == "h1_zig":
+                                if active_k in ["h1_tend", "m10_zig"]:
                                     if new_pts and new_pts[-1][0] == bar.name:
                                         last_y = new_pts[-1][1]
                                         snapped_y = float(bar['Low']) if np.isclose(last_y, bar['High']) else float(bar['High'])
@@ -763,8 +776,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     final_state = {
         "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
         "d1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_fib"], [])],
-        "h1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_zig"], [])],
-        "h1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_fib"], [])]
+        "h1_tend_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_tend"], [])],
+        "h1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_fib"], [])],
+        "m10_zig_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["m10_zig"], [])]
     }
     clean_state = {k: v for k, v in final_state.items() if v is not None}
     
