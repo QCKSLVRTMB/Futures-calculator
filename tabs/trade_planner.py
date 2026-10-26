@@ -17,12 +17,11 @@ def _div(a, b, default=0.0):
     return a / b if b else default
 
 def calc_commission(price, multiplier, tariff):
-    """Возвращает комиссию в рублях за 1 контракт при заданной цене."""
     notional = price * multiplier
     if tariff == "Т-Инвестиции":
-        return max(notional * 0.001, 0.01) # 0.1%, мин 0.01
+        return max(notional * 0.001, 0.01)
     elif tariff == "Финам СТАНДАРТНЫЙ ФОРТС":
-        return 0.45 # Фикс 0.45 руб
+        return 0.45
     return 0.0
 
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
@@ -154,26 +153,54 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
+    # --- УРОВНИ ПОКУПАТЕЛЯ/ПРОДАВЦА + ПЛАШКИ НА ШКАЛЕ ---
     if show_levels and h1_levels:
         for lvl in h1_levels:
             try:
                 t_start = pd.to_datetime(lvl["time"])
                 if lvl["is_buy"]:
-                    y_bottom = float(lvl["low"]); y_top = float(lvl["close"])
-                    zone_color = "rgba(128, 0, 128, 0.1)"; label_bg = "rgba(128, 0, 128, 0.95)"; label_fg = "white"
+                    y_bottom = float(lvl["low"])
+                    y_top = float(lvl["close"])
+                    zone_color = "rgba(128, 0, 128, 0.1)"
+                    label_bg = "rgba(128, 0, 128, 0.95)"
+                    label_fg = "white"
                 else:
-                    y_bottom = float(lvl["close"]); y_top = float(lvl["high"])
-                    zone_color = "rgba(255, 105, 180, 0.1)"; label_bg = "rgba(255, 105, 180, 0.95)"; label_fg = "black"
-                fig.add_shape(type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
-                    fillcolor=zone_color, line=dict(width=0), layer="below", xref="x", yref="y", row=1, col=1)
-                fig.add_annotation(x=0.99, y=y_top, xref="x domain", yref="y",
-                    text=f" {y_top:.{decimals}f} ", showarrow=False, xanchor="right", yanchor="middle",
-                    bgcolor=label_bg, font=dict(color=label_fg, size=10, weight="bold"),
-                    bordercolor="black", borderwidth=1, borderpad=2)
-                fig.add_annotation(x=0.99, y=y_bottom, xref="x domain", yref="y",
-                    text=f" {y_bottom:.{decimals}f} ", showarrow=False, xanchor="right", yanchor="middle",
-                    bgcolor=label_bg, font=dict(color=label_fg, size=10, weight="bold"),
-                    bordercolor="black", borderwidth=1, borderpad=2)
+                    y_bottom = float(lvl["close"])
+                    y_top = float(lvl["high"])
+                    zone_color = "rgba(255, 105, 180, 0.1)"
+                    label_bg = "rgba(255, 105, 180, 0.95)"
+                    label_fg = "black"
+
+                # Зона от начала бара до правого края
+                fig.add_shape(
+                    type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
+                    fillcolor=zone_color, line=dict(width=0),
+                    layer="below", xref="x", yref="y", row=1, col=1
+                )
+
+                # Плашка на ВЕРХНЕЙ границе (уменьшенный размер)
+                fig.add_annotation(
+                    x=0.99, y=y_top,
+                    xref="x domain", yref="y",
+                    text=f" {y_top:.{decimals}f} ",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    bgcolor=label_bg,
+                    font=dict(color=label_fg, size=9, weight="bold"), # Шрифт меньше
+                    bordercolor="black", borderwidth=1, borderpad=1, # Отступы меньше
+                )
+
+                # Плашка на НИЖНЕЙ границе (уменьшенный размер)
+                fig.add_annotation(
+                    x=0.99, y=y_bottom,
+                    xref="x domain", yref="y",
+                    text=f" {y_bottom:.{decimals}f} ",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    bgcolor=label_bg,
+                    font=dict(color=label_fg, size=9, weight="bold"), # Шрифт меньше
+                    bordercolor="black", borderwidth=1, borderpad=1, # Отступы меньше
+                )
             except Exception:
                 continue
 
@@ -627,7 +654,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         sl_price = col_sl.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
         tp_price = col_tp.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
 
-        # Комиссии
         comm_entry = calc_commission(avg_entry, multiplier, commission)
         comm_sl = calc_commission(sl_price, multiplier, commission)
         comm_tp = calc_commission(tp_price, multiplier, commission)
@@ -636,7 +662,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         total_comm_sl = comm_sl * total_contracts
         total_comm_tp = comm_tp * total_contracts
 
-        # Убыток и Прибыль с учетом комиссий
         if direction == "LONG":
             gross_profit = (tp_price - avg_entry) * multiplier * total_contracts
             gross_loss = (avg_entry - sl_price) * multiplier * total_contracts
@@ -649,35 +674,30 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         
         actual_rr = _div(abs(net_profit), abs(net_loss)) if net_loss > 0 else 0
 
-        # Бюджет риска и расчет макс. контрактов
         risk_budget = deposit * (risk_pct / 100)
         loss_per_contract = abs(net_loss / total_contracts) if total_contracts > 0 else 1
         max_contracts_by_risk = int(risk_budget / loss_per_contract) if loss_per_contract > 0 else 0
 
         st.markdown("### Результаты")
         
-        # Основные метрики
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Средний вход", f"{avg_entry:,.{decimals}f}")
         c2.metric("Всего контрактов", f"{total_contracts}")
         c3.metric("Стоимость позиции", f"{position_value:,.2f} ₽")
         c4.metric("Плечо", f"{leverage:.1f}x")
 
-        # ГО и Комиссии
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("ГО в рублях", f"{margin_used:,.2f} ₽")
         c2.metric("ГО от счета", f"{margin_pct:.2f}%")
         c3.metric("Комиссия (вход+выход)", f"{total_comm_entry + total_comm_sl:,.2f} ₽")
         c4.metric("Макс. контрактов", f"{max_contracts_by_risk}")
 
-        # PnL и Риск
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Чистый убыток (SL)", f"−{abs(net_loss):,.2f} ₽")
         c2.metric("Чистая прибыль (TP)", f"+{abs(net_profit):,.2f} ₽")
         c3.metric("RR факт", f"1:{actual_rr:.2f}" if actual_rr > 0 else "—")
         c4.metric("Бюджет риска", f"{risk_budget:,.2f} ₽")
 
-        # ПРЕДУПРЕЖДЕНИЯ
         if abs(net_loss) > risk_budget:
             st.error(f"⛔ **Превышен допустимый риск!** Убыток по стопу ({abs(net_loss):,.2f} ₽) больше бюджета риска ({risk_budget:,.2f} ₽). Сократите количество контрактов до {max_contracts_by_risk}.")
         else:
