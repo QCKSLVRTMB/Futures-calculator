@@ -74,13 +74,16 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         title=title, height=700,
         margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
-        xaxis_rangeslider_visible=False, showlegend=False
+        xaxis_rangeslider_visible=False, showlegend=False,
+        # --- ПЕРЕКРЕСТИЕ ---
+        hovermode='x unified',   # единая подсказка по вертикали
+        hoverdistance=-1,        # реагировать на всё поле графика
+        spikedistance=-1,        # спайки не исчезают при отдалении
     )
 
     # Скрываем выходные
     rangebreaks = [dict(bounds=["sat", "mon"])]
     if is_intraday:
-        # Скрываем ночные часы (с 23:50 до 07:00)
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
     # Отступ справа на 4 свечи
@@ -94,8 +97,24 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
+        # --- ПЕРЕКРЕСТИЕ ПО X ---
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor='gray',
+        spikethickness=1,
+        spikedash='solid',
     )
-    fig.update_yaxes(showgrid=True, gridcolor='lightgray', side='right')
+    fig.update_yaxes(
+        showgrid=True, gridcolor='lightgray', side='right',
+        # --- ПЕРЕКРЕСТИЕ ПО Y ---
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor='gray',
+        spikethickness=1,
+        spikedash='solid',
+    )
     return fig
 
 
@@ -170,7 +189,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 st.info(f"Нет данных для {tf_name}. Возможно, торги по контракту не проводились.")
                 continue
 
-            # Показываем, когда последняя свеча — чтобы сразу было видно, синхронизировано ли
             last_ts = df_candles.index[-1]
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
