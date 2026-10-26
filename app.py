@@ -16,11 +16,13 @@ try:
     cache = load_trend_cache()
     global_settings = cache.get("_global", {})
 
-    # Инициализация стейта бокового меню (чтобы импорт JSON корректно обновлял поля)
-    if "sb_comm" not in st.session_state:
-        st.session_state["sb_comm"] = global_settings.get("commission", "Т-Инвестиции")
+    # Инициализация стейта бокового меню
+    if "sb_strategy" not in st.session_state:
+        st.session_state["sb_strategy"] = global_settings.get("strategy", "Зигзаг тенденции")
     if "sb_deposit" not in st.session_state:
         st.session_state["sb_deposit"] = global_settings.get("deposit", 75000)
+    if "sb_comm" not in st.session_state:
+        st.session_state["sb_comm"] = global_settings.get("commission", "Т-Инвестиции")
     if "sb_margin" not in st.session_state:
         st.session_state["sb_margin"] = global_settings.get("margin_type", "КСУР")
     if "sb_rr" not in st.session_state:
@@ -29,14 +31,20 @@ try:
     with st.sidebar:
         st.header("Параметры")
         
-        commission = st.selectbox(
-            "Комиссия", 
-            ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], 
-            key="sb_comm"
+        strategy = st.selectbox(
+            "Стратегия", 
+            ["Зигзаг тенденции", "Свинг торговля"], 
+            key="sb_strategy"
         )
         
         deposit = st.number_input(
             "Депозит, ₽", min_value=1_000, step=1_000, key="sb_deposit"
+        )
+        
+        commission = st.selectbox(
+            "Комиссия", 
+            ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], 
+            key="sb_comm"
         )
         
         margin_type = st.selectbox(
@@ -73,7 +81,6 @@ try:
                 string_data = uploaded_file.getvalue().decode("utf-8")
                 if import_cache_from_string(string_data):
                     st.success("Настройки успешно загружены!")
-                    # Очищаем стейт, чтобы подтянулись новые значения
                     for k in list(st.session_state.keys()):
                         if k.startswith("deal_") or k.startswith("picker_") or k.startswith("main_") or k.startswith("sb_"):
                             del st.session_state[k]
@@ -83,8 +90,9 @@ try:
 
     # Сохраняем глобальные настройки в JSON, если они изменились
     new_global_settings = {
-        "commission": commission,
+        "strategy": strategy,
         "deposit": deposit,
+        "commission": commission,
         "margin_type": margin_type,
         "rr_ratio": rr_ratio
     }
@@ -124,6 +132,7 @@ try:
                 deposit=deposit,
                 rr_ratio=rr_ratio,
                 commission=commission,
+                strategy=strategy,
             )
 
 except Exception as e:
