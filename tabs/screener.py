@@ -30,7 +30,6 @@ ASSET_BA_MAP = {
     "RUIBS": "Ставка", "RUONIA": "Ставка",
 }
 
-
 # ============ ЕДИНЫЙ ФОРМАТ ЧИСЕЛ ============
 def _fmt_money(v):
     """Денежный формат: 19747,62 ₽"""
@@ -39,7 +38,6 @@ def _fmt_money(v):
     except Exception:
         return str(v)
 
-
 def _fmt_price(v):
     """Цена: 19747,62"""
     try:
@@ -47,14 +45,12 @@ def _fmt_price(v):
     except Exception:
         return str(v)
 
-
 def _fmt_int(v):
     """Целое число: 19748"""
     try:
         return f"{int(round(float(v)))}"
     except Exception:
         return str(v)
-
 
 def _fmt_step(v):
     """Шаг цены: 0,01 / 1 / 10"""
@@ -66,6 +62,24 @@ def _fmt_step(v):
         return s.replace(".", ",")
     except Exception:
         return str(v)
+
+
+# ============ ЛИКВИДНОСТЬ ПО ОТКРЫТОМУ ИНТЕРЕСУ ============
+def _liquidity_rating(open_interest):
+    """Оценка ликвидности по открытому интересу (контракты)."""
+    try:
+        v = float(open_interest)
+    except (ValueError, TypeError):
+        return "—"
+    if v >= 500_000:
+        return "🟢 Высокая"
+    if v >= 100_000:
+        return "🟡 Средняя"
+    if v >= 10_000:
+        return "🟠 Низкая"
+    if v > 0:
+        return "🔴 Очень низкая"
+    return "— Нет открытых позиций"
 
 
 def _classify_ba_type(group, asset_code):
@@ -101,19 +115,20 @@ def _classify_futures_type(delivery_type, group, asset_code):
     return "Расчётный"
 
 
-# ============ КОЛОНКИ: ПОРЯДОК / ШИРИНЫ / КОМПАКТ ============
+# ============ КОЛОНКИ ============
 ALL_COLUMNS = [
     "Тикер", "Краткое наименование", "Тип БА", "Тип фьючерсов",
     "Текущая цена", "Стоимость контракта",
     "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
-    "Доступных лотов", "Шаг цены", "Дата экспирации", "Код актива",
+    "Открытый интерес (контр.)", "Ликвидность",
+    "Шаг цены", "Дата экспирации", "Код актива",
     "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
     "Расчетная цена", "Предыдущая цена", "Дата",
     "Комиссия на 1 сделку", "Комиссия на адресную сделку", "Клиринговая комиссия",
 ]
 
 HIDDEN_IN_COMPACT = [
-    "ГО (ISS sec)",           # дублирует ГО LONG/SHORT
+    "ГО (ISS sec)",
     "Расчетная цена",
     "Предыдущая цена",
     "Клиринговая комиссия",
@@ -123,25 +138,25 @@ HIDDEN_IN_COMPACT = [
     "Комиссия на адресную сделку",
 ]
 
-# Пиксельные ширины для компактного вида — суммарно ~1390 px
 COMPACT_WIDTHS = {
-    "Тикер": 65,
-    "Краткое наименование": 130,
+    "Тикер": 60,
+    "Краткое наименование": 120,
     "Тип БА": 55,
-    "Тип фьючерсов": 75,
-    "Текущая цена": 85,
-    "Стоимость контракта": 90,
-    "ГО LONG": 80,
-    "ГО SHORT": 80,
-    "ГО (min)": 80,
-    "Макс. контрактов": 65,
-    "Доступных лотов": 60,
-    "Шаг цены": 55,
-    "Дата экспирации": 95,
+    "Тип фьючерсов": 70,
+    "Текущая цена": 80,
+    "Стоимость контракта": 85,
+    "ГО LONG": 75,
+    "ГО SHORT": 75,
+    "ГО (min)": 75,
+    "Макс. контрактов": 60,
+    "Открытый интерес (контр.)": 95,
+    "Ликвидность": 85,
+    "Шаг цены": 50,
+    "Дата экспирации": 90,
     "Код актива": 50,
-    "Верхний лимит": 80,
-    "Нижний лимит": 80,
-    "Дата": 105,
+    "Верхний лимит": 75,
+    "Нижний лимит": 75,
+    "Дата": 100,
     "Комиссия на 1 сделку": 75,
 }
 
@@ -230,9 +245,11 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
 
     df["MaxContracts"] = df["MarginUsed"].apply(lambda m: _max_contracts(m, deposit))
 
-    # ============ КЛАССИФИКАЦИЯ ============
+    # ============ КЛАССИФИКАЦИЯ + ЛИКВИДНОСТЬ ============
     df["BAType"] = df.apply(lambda r: _classify_ba_type(r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
     df["FuturesType"] = df.apply(lambda r: _classify_futures_type(r.get("DELIVERYTYPE", ""), r.get("GROUP", ""), r.get("ASSETCODE", "")), axis=1)
+    # Ликвидность — по открытому интересу (OPENPOSITION)
+    df["Liquidity"] = df["OPENPOSITION"].apply(_liquidity_rating)
 
     # ============ Инфо-строка ============
     ims_source_ok = ims_has_buy and ims_has_sell
@@ -311,13 +328,28 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
                     st.session_state["scr_exp"] = []
                     st.rerun()
     with f3:
+        min_open_interest = st.number_input(
+            "Мин. открытый интерес (контр.)",
+            min_value=0,
+            max_value=10_000_000,
+            step=1000,
+            value=0,
+            key="scr_min_oi",
+            help="Показать только контракты с открытым интересом (OPENPOSITION) не менее указанного значения. 0 — без фильтра.",
+        )
+
+    # ============ ФИЛЬТРЫ (ряд 3: чекбоксы) ============
+    f1, f2, f3 = st.columns([2, 2, 2])
+    with f1:
         only_traded = st.checkbox("Только торгуемые", value=True, key="scr_traded")
+    with f2:
         only_fitting = st.checkbox(
             "Только помещающиеся в депозит",
             value=False,
             key="scr_fit",
             help=f"Скрыть контракты, на которые не хватает депозита ({_fmt_money(deposit)}) при выбранном типе ГО ({margin_type}).",
         )
+    with f3:
         only_nearest = st.checkbox(
             "Только ближайшие контракты",
             value=True,
@@ -340,6 +372,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         view = view[view["LASTTRADEDATE"].isin(exp_pick)]
     if only_traded:
         view = view[view["VALTODAY"].fillna(0) > 0]
+    if min_open_interest > 0:
+        view = view[view["OPENPOSITION"].fillna(0) >= min_open_interest]
 
     if only_nearest and not view.empty:
         mask_valid = view["ASSETCODE"].fillna("").astype(str) != ""
@@ -367,6 +401,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         filter_desc.append(f"активы: {len(asset_pick)}")
     if exp_pick:
         filter_desc.append(f"экспираций: {len(exp_pick)}")
+    if min_open_interest > 0:
+        filter_desc.append(f"откр. интерес ≥ {_fmt_int(min_open_interest)}")
     if only_nearest:
         filter_desc.append("только ближайшие контракты")
     filter_text = " · ".join(filter_desc) if filter_desc else "без дополнительных фильтров"
@@ -384,8 +420,10 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     out = view.rename(columns={
         "SECID": "Тикер", "SHORTNAME": "Краткое наименование", "LAST": "Текущая цена",
         "BAType": "Тип БА", "FuturesType": "Тип фьючерсов",
-        "Notional": "Стоимость контракта", "LOTVOLUME": "Доступных лотов", "MINSTEP": "Шаг цены",
-        "LASTTRADEDATE": "Дата экспирации", "ASSETCODE": "Код актива", "OPENPOSITION": "Открытых позиций",
+        "Notional": "Стоимость контракта", "MINSTEP": "Шаг цены",
+        "Liquidity": "Ликвидность",
+        "LASTTRADEDATE": "Дата экспирации", "ASSETCODE": "Код актива",
+        "OPENPOSITION": "Открытый интерес (контр.)",
         "LOTSIZE": "Лот", "INITIALMARGIN": "ГО (ISS sec)",
         "MarginLong": "ГО LONG", "MarginShort": "ГО SHORT",
         "MarginUsed": "ГО (min)", "MaxContracts": "Макс. контрактов",
@@ -411,7 +449,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         else:
             st.caption(f"Показаны все **{len(ALL_COLUMNS)}** колонок · при нехватке ширины используйте горизонтальный скролл")
 
-    # Фильтруем колонки под режим
     if compact_view:
         visible_columns = [c for c in ALL_COLUMNS if c not in HIDDEN_IN_COMPACT]
     else:
@@ -419,7 +456,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
 
     out_view = out[visible_columns].copy()
 
-    # В компактном виде обрезаем длинные имена (tooltip покажет полное значение при наведении)
     if compact_view and "Краткое наименование" in out_view.columns:
         out_view["Краткое наименование"] = out_view["Краткое наименование"].astype(str).str[:20]
 
@@ -431,9 +467,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             return ["background-color: #f8d7da; color: #842029"] * len(row)
         return [""] * len(row)
 
-    # ============ ФОРМАТЫ (только для присутствующих колонок) ============
+    # ============ ФОРМАТЫ ============
     format_map = {
-        # деньги
         "Стоимость контракта": _fmt_money,
         "ГО (ISS sec)":        _fmt_money,
         "ГО LONG":             _fmt_money,
@@ -443,25 +478,22 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "Комиссия на 1 сделку":        _fmt_money,
         "Комиссия на адресную сделку": _fmt_money,
         "Клиринговая комиссия":        _fmt_money,
-        # цены
         "Текущая цена":    _fmt_price,
         "Верхний лимит":   _fmt_price,
         "Нижний лимит":    _fmt_price,
         "Расчетная цена":  _fmt_price,
         "Предыдущая цена": _fmt_price,
-        # целые
         "Макс. контрактов":  _fmt_int,
-        "Доступных лотов":   _fmt_int,
+        "Открытый интерес (контр.)": _fmt_int,
         "Открытых позиций":  _fmt_int,
         "Лот":               _fmt_int,
-        # шаг
         "Шаг цены": _fmt_step,
     }
     format_map = {k: v for k, v in format_map.items() if k in out_view.columns}
 
     styled = out_view.style.apply(_row_style, axis=1).format(format_map, na_rep="—")
 
-    # ============ КОНФИГ КОЛОНОК (ширины в пикселях) ============
+    # ============ КОНФИГ КОЛОНОК ============
     def _width(col):
         return COMPACT_WIDTHS.get(col, "medium" if col == "Краткое наименование" else "small")
 
@@ -483,10 +515,12 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             column_config[col] = st.column_config.TextColumn("ГО (min)", width=_width(col), help="min(ГО LONG, ГО SHORT) — используется для расчёта")
         elif col == "Макс. контрактов":
             column_config[col] = st.column_config.TextColumn("Макс.", width=_width(col), help="Депозит / ГО (min) — сколько контрактов помещается")
-        elif col == "Доступных лотов":
-            column_config[col] = st.column_config.TextColumn("Лотов", width=_width(col))
+        elif col == "Открытый интерес (контр.)":
+            column_config[col] = st.column_config.TextColumn("Откр. интерес", width=_width(col), help="Общее количество контрактов в обращении (OPENPOSITION)")
+        elif col == "Ликвидность":
+            column_config[col] = st.column_config.TextColumn("Ликвидность", width=_width(col), help="Оценка по открытому интересу: ≥500 000 — высокая, ≥100 000 — средняя, ≥10 000 — низкая, >0 — очень низкая")
         elif col == "Открытых позиций":
-            column_config[col] = st.column_config.TextColumn("ОП", width=_width(col), help="Открытый интерес")
+            column_config[col] = st.column_config.TextColumn("ОП", width=_width(col), help="Дублирует открытый интерес (для совместимости)")
         elif col == "Шаг цены":
             column_config[col] = st.column_config.TextColumn("Шаг", width=_width(col))
         elif col == "Код актива":
@@ -524,11 +558,16 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     unique_assets = view["ASSETCODE"].nunique()
     unique_exps = view["LASTTRADEDATE"].nunique()
     max_valtoday = view["VALTODAY"].max() if not view.empty else 0
+    total_oi = int(view["OPENPOSITION"].fillna(0).sum())
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Показано", f"{total_after} из {total_before}")
     c2.metric("Помещается на депозит", f"{fit_count} / {total_after}")
     c3.metric("Уникальных активов", unique_assets)
-    c4.metric("Экспираций", unique_exps)
+    c4.metric("Суммарный откр. интерес", _fmt_int(total_oi))
 
-    st.caption(f"Максимальный VALTODAY: {_fmt_money(max_valtoday)} · Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(
+        f"Максимальный VALTODAY: {_fmt_money(max_valtoday)} · "
+        f"Экспираций: {unique_exps} · "
+        f"Обновлено: {datetime.now().strftime('%H:%M:%S')}"
+    )
