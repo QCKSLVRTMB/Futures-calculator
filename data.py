@@ -75,7 +75,8 @@ SEC_COLS = {
     "SECID": ["SECID"], "SHORTNAME": ["SHORTNAME"], "ASSETCODE": ["ASSETCODE"],
     "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
     "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
-    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], "BUYSELLFEE": ["BUYSELLFEE"],
+    "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], 
+    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"], # <-- Добавлено
 }
 
 MKT_COLS = {
@@ -115,9 +116,11 @@ def fetch_moex_forts() -> pd.DataFrame:
 
     df = sec.merge(mkt, on="SECID", how="left")
 
+    # Добавлен "DECIMALS" в числовые колонки
     numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
                     "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
-                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME"]
+                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"] 
+    
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -138,25 +141,17 @@ MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/secur
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.DataFrame:
-    """
-    Загружает реальные свечи с MOEX ISS с постраничной пагинацией.
-    MOEX ISS отдаёт максимум 500 свечей за запрос — при необходимости
-    делаем несколько запросов через параметр `start`.
-    """
     from_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     till_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     all_chunks = []
     start = 0
-    max_pages = 30  # защита от бесконечного цикла
+    max_pages = 30
 
     for _ in range(max_pages):
         params = {
-            "interval": interval,
-            "from": from_date,
-            "till": till_date,
-            "start": start,
-            "iss.meta": "off",
+            "interval": interval, "from": from_date, "till": till_date,
+            "start": start, "iss.meta": "off",
         }
         try:
             r = requests.get(MOEX_CANDLES_URL.format(ticker=ticker), params=params, timeout=15)
@@ -172,7 +167,6 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
         chunk = pd.DataFrame(block["data"], columns=block["columns"])
         all_chunks.append(chunk)
 
-        # Если получили < 500 — данных больше нет
         if len(chunk) < 500:
             break
         start += 500
