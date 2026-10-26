@@ -20,12 +20,12 @@ def _div(a, b, default=0.0):
 def check_zigzag_pattern(a, b, c, d, direction):
     if direction == "LONG":
         if a < b and b > c and c < d and b > d and a < c:
-            return True, "✅ Структура LONG соответствует: a<b>c<d (b>d)"
-        return False, "❌ Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
+            return True, "Структура LONG соответствует: a<b>c<d (b>d)"
+        return False, "Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
     else:
         if a > b and b < c and c > d and b < d and a > c:
-            return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
-        return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
+            return True, "Структура SHORT соответствует: a>b<c>d (b<d)"
+        return False, "Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 def detect_trend(df):
     if len(df) < 20:
@@ -244,7 +244,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_h1 and manual_pts:
         breakouts = analyze_manual_zigzag(manual_pts, df_chart)
         
-        # Множество для отслеживания уже нарисованных координат плашек
         drawn_coords = set()
         
         for brk in breakouts:
@@ -260,7 +259,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 f"Vol: {brk['volume']:,.0f}"
             )
             
-            # Плашка у пика (D, F, H)
             peak_key = (brk['peak_time'], brk['peak_price'])
             if peak_key not in drawn_coords:
                 fig.add_annotation(
@@ -275,7 +273,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 )
                 drawn_coords.add(peak_key)
             
-            # Плашка у сопротивления (B, D, F)
             res_key = (brk['resistance_time'], brk['resistance_price'])
             if res_key not in drawn_coords:
                 fig.add_annotation(
@@ -290,7 +287,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 )
                 drawn_coords.add(res_key)
 
-            # 1. Горизонталь от сопротивления до бара пробоя
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['resistance_price'],
@@ -298,7 +294,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 2. Вертикаль от бара пробоя до пика
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['peak_price'],
@@ -306,7 +301,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 3. Горизонталь от вертикали к пику
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['peak_price'], 
                 x1=brk['peak_time'], y1=brk['peak_price'],
@@ -314,7 +308,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 xref="x", yref="y", row=1, col=1
             )
 
-            # Текст пробоя
             mid_y_breakout = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
             fig.add_annotation(
                 x=brk['breakout_time'], y=mid_y_breakout,
@@ -331,7 +324,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 f"Vol: {brk['retr_volume']:,.0f}"
             )
             
-            # Плашка у отката (C, E, G)
             pull_key = (brk['pullback_time'], brk['pullback_price'])
             if pull_key not in drawn_coords:
                 fig.add_annotation(
@@ -346,7 +338,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 )
                 drawn_coords.add(pull_key)
 
-            # 4. Вертикаль от бара пробоя вниз до уровня отката
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['pullback_price'],
@@ -354,7 +345,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 xref="x", yref="y", row=1, col=1
             )
 
-            # 5. Горизонталь от вертикали до точки отката
             fig.add_shape(
                 type="line", x0=brk['breakout_time'], y0=brk['pullback_price'], 
                 x1=brk['pullback_time'], y1=brk['pullback_price'],
@@ -362,7 +352,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 xref="x", yref="y", row=1, col=1
             )
 
-            # Текст отката
             mid_y_pullback = brk['pullback_price'] + (brk['resistance_price'] - brk['pullback_price']) / 2
             fig.add_annotation(
                 x=brk['breakout_time'], y=mid_y_pullback,
@@ -491,8 +480,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         title=title, height=700,
         margin=dict(l=10, r=10, t=50, b=50),
         plot_bgcolor='white', paper_bgcolor='white',
-        xaxis_rangeslider_visible=False, showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_rangeslider_visible=False, showlegend=False,
         hovermode='closest', spikedistance=-1,
     )
 
@@ -540,7 +528,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
-    st.subheader(f"🎯 Позиция: {ticker}")
+    st.subheader(f"Позиция: {ticker}")
 
     iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
 
@@ -551,7 +539,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         market = 100000.0
         decimals = 0
 
-    margin_per_contract = get_margin(go_df, ticker, "КСУР", "LONG")
+    margin_type = st.session_state.get("margin_type", "КСУР")
+
+    margin_per_contract = get_margin(go_df, ticker, margin_type, "LONG")
     if margin_per_contract == 0 and not iss_row.empty:
         margin_per_contract = to_float(iss_row.iloc[0].get("INITIALMARGIN", 0))
     if margin_per_contract == 0:
@@ -561,24 +551,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
-    market_state = st.session_state.setdefault("market_state", {})
-    state = market_state.get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
-    trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
-
-    options_labels = {}
-    for tt in ["трендовая", "контртренд"]:
-        for d in ["LONG", "SHORT"]:
-            rule = lookup(trend, wave, tendency, tt, d)
-            if rule is not None and not rule["is_forbidden"]:
-                label = f"{'🟢' if tt == 'трендовая' else '🔴'} {tt.capitalize()} {d}"
-                options_labels[label] = (tt, d, rule)
-
-    if not options_labels:
-        st.error("❌ Для данного состояния рынка нет разрешенных сценариев.")
-        return
-
-    selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
-    tt, direction, rule = options_labels[selected_label]
+    # --- Направление торговли ---
+    direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
 
     # --- АНАЛИЗ D1 ---
     df_d1_full = fetch_moex_candles(ticker, interval=24, days_back=250)
@@ -623,7 +597,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.session_state[debounce_key] = 0.0
 
     # --- СПОЙЛЕР: ТЕХНИЧЕСКАЯ АНАЛИТИКА ---
-    with st.expander("📐 Техническая аналитика графика", expanded=False):
+    with st.expander("Техническая аналитика графика", expanded=False):
         st.markdown(f"**Тренд (D1):** {trend_d1}")
         
         c1, c2, c3 = st.columns(3)
@@ -665,7 +639,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     final_channel = {'p1': b1, 'p2': b2, 'p3': b3}
                     final_annotations = [(b1[0], 'high', b1[1]), (b2[0], 'low', b2[1]), (b3[0], 'high', b3[1])]
                 else:
-                    st.warning("⚠️ Условие пробоя Точки 2 (поддержки) не выполнено. Канал не построен.")
+                    st.warning("Условие пробоя Точки 2 (поддержки) не выполнено. Канал не построен.")
                     final_channel = None
                     final_annotations = []
                     
@@ -679,7 +653,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     final_channel = {'p1': b1, 'p2': b3, 'p3': b2}
                     final_annotations = [(b1[0], 'low', b1[1]), (b2[0], 'high', b2[1]), (b3[0], 'low', b3[1])]
                 else:
-                    st.warning("⚠️ Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
+                    st.warning("Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
                     final_channel = None
                     final_annotations = []
 
@@ -689,8 +663,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         ok, msg = check_zigzag_pattern(p_a, p_b, p_c, p_d, direction)
         (st.success if ok else st.warning)(msg)
 
-    st.markdown("#### 📊 Графики рынка (MOEX ISS)")
-    chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
+    st.markdown("#### Графики рынка (MOEX ISS)")
+    chart_tabs = st.tabs(["D1 (Дни)", "H1 (Часы)", "M10 (10 минут)"])
 
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
         with tab:
@@ -729,7 +703,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     if is_h1:
                         col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
                         with col1:
-                            if st.button("⬅️ Отменить", key=f"undo_btn_{ticker}"):
+                            if st.button("Отменить", key=f"undo_btn_{ticker}"):
                                 if len(st.session_state[undo_key]) > 0:
                                     prev_state = st.session_state[undo_key].pop()
                                     st.session_state[redo_key].append(st.session_state[pts_key].copy())
@@ -737,7 +711,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                     st.session_state[debounce_key] = 0.0
                                     st.rerun()
                         with col2:
-                            if st.button("➡️ Повторить", key=f"redo_btn_{ticker}"):
+                            if st.button("Повторить", key=f"redo_btn_{ticker}"):
                                 if len(st.session_state[redo_key]) > 0:
                                     next_state = st.session_state[redo_key].pop()
                                     st.session_state[undo_key].append(st.session_state[pts_key].copy())
@@ -745,14 +719,14 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                     st.session_state[debounce_key] = 0.0
                                     st.rerun()
                         with col3:
-                            if st.button("🗑️ Очистить", key=f"clear_{ticker}_H1"):
+                            if st.button("Очистить", key=f"clear_{ticker}_H1"):
                                 st.session_state[undo_key].append(st.session_state[pts_key].copy())
                                 st.session_state[redo_key] = []
                                 st.session_state[pts_key] = []
                                 st.session_state[debounce_key] = 0.0
                                 st.rerun()
                         with col4:
-                            draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
+                            draw_mode = st.toggle("Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
 
                         if draw_mode:
                             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
@@ -822,7 +796,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                             
                         if breakouts:
                             st.markdown("---")
-                            st.markdown("#### 📈 Анализ пробоев и откатов H1")
+                            st.markdown("#### Анализ пробоев и откатов H1")
                             
                             df_metrics = pd.DataFrame([
                                 {
@@ -888,7 +862,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.error("Для SHORT точка D должна быть ниже C.")
         return
 
-    st.markdown("#### ⚙️ Параметры сделки")
+    st.markdown("#### Параметры сделки")
     p1, p2 = st.columns(2)
     risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
     rr_ratio = p2.number_input("Risk Reward (1 к ...)", min_value=1.0, value=3.0, step=0.5, key=key("rr_ratio"))
@@ -907,7 +881,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     margin_used = contracts * margin_per_contract
 
     st.markdown("---")
-    st.markdown("#### 📈 Итоги расчета")
+    st.markdown("#### Итоги расчета")
     profit_rub = abs(tp_price - avg_entry) * pv * contracts
     loss_rub = abs(avg_entry - sl_price) * pv * contracts
     cur_pnl = (market - avg_entry) * pv * contracts if direction == "LONG" else (avg_entry - market) * pv * contracts
