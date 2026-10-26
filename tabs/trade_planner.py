@@ -17,7 +17,6 @@ def _div(a, b, default=0.0):
     return a / b if b else default
 
 def fmt_ru(value, decimals=2, suffix=""):
-    """Форматирует число в русском стиле: пробел для тысяч, запятая для копеек."""
     if value is None:
         return "—"
     try:
@@ -167,6 +166,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     if show_levels and h1_levels:
         for lvl in h1_levels:
             try:
+                if not isinstance(lvl, dict): continue # Защита от старых форматов
                 t_start = pd.to_datetime(lvl["time"])
                 if lvl["is_buy"]:
                     y_bottom = float(lvl["low"])
@@ -532,6 +532,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             bar = df_view.iloc[idx]
 
                             pts = st.session_state[active_skey]
+                            if not isinstance(pts, list): pts = []
 
                             if active_k == "h1_levels":
                                 new_level = {"time": str(bar.name), "open": float(bar['Open']), "high": float(bar['High']), "low": float(bar['Low']), "close": float(bar['Close']), "is_buy": bool(bar['Close'] > bar['Open'])}
@@ -610,121 +611,4 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
     direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
 
     h1_trend_dir = None
-    if len(h1_pts) >= 2:
-        last_move = h1_pts[-1][1] - h1_pts[-2][1]
-        if last_move > 0: h1_trend_dir = "up"
-        elif last_move < 0: h1_trend_dir = "down"
-
-    if h1_trend_dir is None:
-        st.info("Нарисуйте минимум 2 точки H1: Тенденции для определения тренда")
-    else:
-        is_trend_trade = (h1_trend_dir == "up" and direction == "LONG") or (h1_trend_dir == "down" and direction == "SHORT")
-        if is_trend_trade: st.success(f"### Трендовая сделка ({direction})")
-        else: st.error(f"### Контртрендовая сделка ({direction})")
-
-    st.markdown("### Точки входа")
-    entries_raw_key = key("entries_raw")
-    if entries_raw_key not in st.session_state:
-        st.session_state[entries_raw_key] = pd.DataFrame({"Цена входа": [float(market)], "Контрактов": [1]})
-
-    df_for_editor = st.session_state[entries_raw_key].copy()
-    df_for_editor["Цена входа"] = df_for_editor["Цена входа"].fillna(0.0)
-    df_for_editor["Контрактов"] = df_for_editor["Контрактов"].fillna(0)
-    df_for_editor["Стоимость позиции"] = df_for_editor["Цена входа"] * df_for_editor["Контрактов"] * multiplier
-    df_for_editor["ГО в ₽"] = df_for_editor["Контрактов"] * margin_per_contract
-    df_for_editor["ГО в %"] = (df_for_editor["ГО в ₽"] / deposit * 100) if deposit > 0 else 0.0
-
-    edited_entries = st.data_editor(df_for_editor, num_rows="dynamic", use_container_width=True,
-        column_config={
-            "Цена входа": st.column_config.NumberColumn(format=f"%.{decimals}f", min_value=0.0),
-            "Контрактов": st.column_config.NumberColumn(min_value=0, step=1),
-            "Стоимость позиции": st.column_config.NumberColumn(format="%.2f ₽", disabled=True),
-            "ГО в ₽": st.column_config.NumberColumn(format="%.2f ₽", disabled=True),
-            "ГО в %": st.column_config.NumberColumn(format="%.2f%%", disabled=True),
-        }, key=key("entries_editor"))
-    st.session_state[entries_raw_key] = edited_entries[["Цена входа", "Контрактов"]].copy()
-
-    valid_entries = edited_entries[(edited_entries["Цена входа"] > 0) & (edited_entries["Контрактов"] > 0)]
-
-    if valid_entries.empty:
-        st.warning("Добавьте хотя бы одну точку входа (цена > 0 и контрактов > 0)")
-    else:
-        total_contracts = int(valid_entries["Контрактов"].sum())
-        avg_entry = (valid_entries["Цена входа"] * valid_entries["Контрактов"]).sum() / total_contracts
-        margin_used = total_contracts * margin_per_contract
-        margin_pct = _div(margin_used, deposit) * 100
-        position_value = avg_entry * multiplier * total_contracts
-        leverage = _div(position_value, margin_used)
-
-        st.markdown("### Уровни SL и TP")
-        col_sl, col_tp = st.columns(2)
-        sl_price = col_sl.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
-        tp_price = col_tp.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
-
-        comm_entry = calc_commission(avg_entry, multiplier, commission)
-        comm_sl = calc_commission(sl_price, multiplier, commission)
-        comm_tp = calc_commission(tp_price, multiplier, commission)
-        
-        total_comm_entry = comm_entry * total_contracts
-        total_comm_sl = comm_sl * total_contracts
-        total_comm_tp = comm_tp * total_contracts
-
-        if direction == "LONG":
-            gross_profit = (tp_price - avg_entry) * multiplier * total_contracts
-            gross_loss = (avg_entry - sl_price) * multiplier * total_contracts
-        else:
-            gross_profit = (avg_entry - tp_price) * multiplier * total_contracts
-            gross_loss = (sl_price - avg_entry) * multiplier * total_contracts
-
-        net_profit = gross_profit - total_comm_entry - total_comm_tp
-        net_loss = gross_loss + total_comm_entry + total_comm_sl
-        
-        actual_rr = _div(abs(net_profit), abs(net_loss)) if net_loss > 0 else 0
-
-        risk_budget = deposit * (risk_pct / 100)
-        loss_per_contract = abs(net_loss / total_contracts) if total_contracts > 0 else 1
-        max_contracts_by_risk = int(risk_budget / loss_per_contract) if loss_per_contract > 0 else 0
-
-        st.markdown("### Результаты")
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Средний вход", fmt_ru(avg_entry, decimals))
-        c2.metric("Всего контрактов", f"{total_contracts}")
-        c3.metric("Стоимость позиции", fmt_ru(position_value, 2, " ₽"))
-        c4.metric("Плечо", fmt_ru(leverage, 1, "x"))
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("ГО в рублях", fmt_ru(margin_used, 2, " ₽"))
-        c2.metric("ГО от счета", fmt_ru(margin_pct, 2, "%"))
-        c3.metric("Комиссия (вход+выход)", fmt_ru(total_comm_entry + total_comm_sl, 2, " ₽"))
-        c4.metric("Макс. контрактов", f"{max_contracts_by_risk}")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Чистый убыток (SL)", f"−{fmt_ru(abs(net_loss), 2, ' ₽')}")
-        c2.metric("Чистая прибыль (TP)", f"+{fmt_ru(abs(net_profit), 2, ' ₽')}")
-        c3.metric("RR факт", f"1:{fmt_ru(actual_rr, 2)}" if actual_rr > 0 else "—")
-        c4.metric("Бюджет риска", fmt_ru(risk_budget, 2, " ₽"))
-
-        if abs(net_loss) > risk_budget:
-            st.error(f"⛔ **Превышен допустимый риск!** Убыток по стопу ({fmt_ru(abs(net_loss), 2, ' ₽')}) больше бюджета риска ({fmt_ru(risk_budget, 2, ' ₽')}). Сократите количество контрактов до {max_contracts_by_risk}.")
-        else:
-            st.success(f"✅ Риск в норме. Убыток ({fmt_ru(abs(net_loss), 2, ' ₽')}) не превышает бюджет ({fmt_ru(risk_budget, 2, ' ₽')}).")
-
-        if actual_rr > 0:
-            if actual_rr >= rr_ratio:
-                st.success(f"✅ RR соответствует норме (≥ 1:{fmt_ru(rr_ratio, 2)})")
-            else:
-                st.warning(f"⚠️ RR ниже нормы (факт 1:{fmt_ru(actual_rr, 2)}, требуется 1:{fmt_ru(rr_ratio, 2)})")
-
-    # ========== СОХРАНЕНИЕ В JSON ==========
-    final_state = {
-        "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
-        "d1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_fib"], [])],
-        "h1_tend_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_tend"], [])],
-        "h1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_fib"], [])],
-        "m10_zig_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["m10_zig"], [])],
-        "h1_levels": st.session_state.get(pts_keys["h1_levels"], []),
-    }
-    clean_state = {k: v for k, v in final_state.items() if v is not None}
-    if clean_state != ticker_cache:
-        save_trend_cache(ticker, clean_state)
+    if len(h1_pts) >=
