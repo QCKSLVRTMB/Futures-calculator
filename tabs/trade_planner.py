@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 from data import vlookup, to_float, get_margin, fetch_moex_candles
 from rules import lookup
 
-# Оптимальные параметры для каждого таймфрейма (гарантированно < 500 свечей)
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
     "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True},
@@ -29,9 +28,12 @@ def check_zigzag_pattern(a, b, c, d, direction):
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0):
     if df_chart.empty:
         return None
+
+    # Формируем формат оси Y (например, ".0f" для целых, ".2f" для копеек)
+    tick_fmt = f",.{decimals}f"
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
@@ -75,18 +77,14 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
-        # --- ВОЗВРАТ ПОДСКАЗКИ ---
-        hovermode='closest',     # Показывать подсказку только для ближайшего бара
-        # spikedistance=-1 оставляем, чтобы спайки работали по всему полю
+        hovermode='closest',
         spikedistance=-1,
     )
 
-    # Скрываем выходные
     rangebreaks = [dict(bounds=["sat", "mon"])]
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    # Отступ справа на 4 свечи
     if len(df_chart) > 1:
         delta = df_chart.index[-1] - df_chart.index[-2]
         x_range = [df_chart.index[0] - delta, df_chart.index[-1] + 4 * delta]
@@ -97,23 +95,14 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False):
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
-        # --- ПУНКТИРНОЕ ПЕРЕКРЕСТИЕ ПО X ---
-        showspikes=True,
-        spikemode='across',
-        spikesnap='cursor',
-        spikecolor='gray',
-        spikethickness=1,
-        spikedash='dash',        # Пунктирная линия
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='gray', spikethickness=1, spikedash='dash',
     )
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
-        # --- ПУНКТИРНОЕ ПЕРЕКРЕСТИЕ ПО Y ---
-        showspikes=True,
-        spikemode='across',
-        spikesnap='cursor',
-        spikecolor='gray',
-        spikethickness=1,
-        spikedash='dash',        # Пунктирная линия
+        tickformat=tick_fmt, # <-- Применяем формат к оси Y
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='gray', spikethickness=1, spikedash='dash',
     )
     return fig
 
@@ -127,8 +116,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
 
     if not iss_row.empty:
         market = to_float(iss_row.iloc[0].get("LAST", 0)) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
+        # Извлекаем количество знаков после запятой
+        decimals = int(to_float(iss_row.iloc[0].get("DECIMALS", 0)))
     else:
         market = 100000.0
+        decimals = 0
 
     margin_per_contract = get_margin(go_df, ticker, "КСУР", "LONG")
     if margin_per_contract == 0 and not iss_row.empty:
@@ -193,10 +185,12 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
+                # Передаем decimals в функцию отрисовки
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
+                    decimals=decimals,
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
