@@ -41,6 +41,9 @@ INTERVALS = {
     "M10": {"interval": 10, "days_back": 5,   "is_intraday": True,  "label": "M10 (10 минут)"},
 }
 
+# ВАЖНО: storage.py использует TIMEFRAMES для создания дефолтных словарей
+TIMEFRAMES = list(INTERVALS.keys())
+
 TOOLS = {
     "channel": "D1: Канал",
     "fib_d1":  "D1: Уровень 1/2",
