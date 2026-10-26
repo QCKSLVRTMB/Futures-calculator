@@ -143,7 +143,6 @@ def analyze_manual_zigzag(pts, df):
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             
-            # Расчет отката от B до C
             retr_delta = b_price - c_price
             df_pullback = df.loc[b_time:c_time]
             retr_bars = len(df_pullback)
@@ -168,7 +167,6 @@ def analyze_manual_zigzag(pts, df):
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             
-            # Расчет отката от B до C
             retr_delta = c_price - b_price
             df_pullback = df.loc[b_time:c_time]
             retr_bars = len(df_pullback)
@@ -246,9 +244,12 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_h1 and manual_pts:
         breakouts = analyze_manual_zigzag(manual_pts, df_chart)
         
+        # Множество для отслеживания уже нарисованных координат плашек
+        drawn_coords = set()
+        
         for brk in breakouts:
-            breakout_bg = "rgba(13, 110, 253, 0.9)"   # Синий для пробоев
-            pullback_bg = "rgba(253, 126, 20, 0.9)"   # Оранжевый для откатов
+            breakout_bg = "rgba(13, 110, 253, 0.9)"
+            pullback_bg = "rgba(253, 126, 20, 0.9)"
             line_color_breakout = "#0d6efd"
             line_color_pullback = "#fd7e14"
             
@@ -260,28 +261,34 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             )
             
             # Плашка у пика (D, F, H)
-            fig.add_annotation(
-                x=brk['peak_time'], y=brk['peak_price'],
-                text=breakout_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
-                ax=40, ay=-40,
-                bgcolor=breakout_bg, 
-                font=dict(color="white", size=10),
-                bordercolor="black", borderwidth=1, borderpad=3,
-                row=1, col=1
-            )
+            peak_key = (brk['peak_time'], brk['peak_price'])
+            if peak_key not in drawn_coords:
+                fig.add_annotation(
+                    x=brk['peak_time'], y=brk['peak_price'],
+                    text=breakout_text,
+                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
+                    ax=40, ay=-40,
+                    bgcolor=breakout_bg, 
+                    font=dict(color="white", size=10),
+                    bordercolor="black", borderwidth=1, borderpad=3,
+                    row=1, col=1
+                )
+                drawn_coords.add(peak_key)
             
             # Плашка у сопротивления (B, D, F)
-            fig.add_annotation(
-                x=brk['resistance_time'], y=brk['resistance_price'],
-                text=breakout_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
-                ax=-40, ay=40,
-                bgcolor=breakout_bg, 
-                font=dict(color="white", size=10),
-                bordercolor="black", borderwidth=1, borderpad=3,
-                row=1, col=1
-            )
+            res_key = (brk['resistance_time'], brk['resistance_price'])
+            if res_key not in drawn_coords:
+                fig.add_annotation(
+                    x=brk['resistance_time'], y=brk['resistance_price'],
+                    text=breakout_text,
+                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_breakout,
+                    ax=-40, ay=40,
+                    bgcolor=breakout_bg, 
+                    font=dict(color="white", size=10),
+                    bordercolor="black", borderwidth=1, borderpad=3,
+                    row=1, col=1
+                )
+                drawn_coords.add(res_key)
 
             # 1. Горизонталь от сопротивления до бара пробоя
             fig.add_shape(
@@ -325,16 +332,19 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             )
             
             # Плашка у отката (C, E, G)
-            fig.add_annotation(
-                x=brk['pullback_time'], y=brk['pullback_price'],
-                text=pullback_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
-                ax=0, ay=40,
-                bgcolor=pullback_bg, 
-                font=dict(color="white", size=10),
-                bordercolor="black", borderwidth=1, borderpad=3,
-                row=1, col=1
-            )
+            pull_key = (brk['pullback_time'], brk['pullback_price'])
+            if pull_key not in drawn_coords:
+                fig.add_annotation(
+                    x=brk['pullback_time'], y=brk['pullback_price'],
+                    text=pullback_text,
+                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
+                    ax=0, ay=40,
+                    bgcolor=pullback_bg, 
+                    font=dict(color="white", size=10),
+                    bordercolor="black", borderwidth=1, borderpad=3,
+                    row=1, col=1
+                )
+                drawn_coords.add(pull_key)
 
             # 4. Вертикаль от бара пробоя вниз до уровня отката
             fig.add_shape(
