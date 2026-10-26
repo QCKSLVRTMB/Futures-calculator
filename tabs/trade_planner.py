@@ -117,22 +117,25 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 l1_idx = i
         
         if l1_idx is not None:
-            # 2. Ищем следующий минимум, который выше первого (Higher Low)
+            # 2. Ищем ПОСЛЕДНИЙ минимум, который выше первого (Higher Low)
+            # Убрали break, чтобы находить самый свежий минимум
+            l2_idx = None
             for i in range(l1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'low' and pivots[i][2] > pivots[l1_idx][2]:
                     l2_idx = i
-                    # 3. Ищем максимум между ними (Highest High)
-                    highs = [p for p in pivots[l1_idx+1:l2_idx] if p[1] == 'high']
-                    if highs:
-                        h1 = max(highs, key=lambda x: x[2])
-                        channel_data = {
-                            'p1': (pivots[l1_idx][0], pivots[l1_idx][2]), # База луча (L1)
-                            'p2': (pivots[l2_idx][0], pivots[l2_idx][2]), # 2-я точка луча (L2)
-                            'p3': (h1[0], h1[2])                          # Параллель (H1)
-                        }
-                        # Плашки для отрисовки
-                        annotations = [pivots[l1_idx], h1, pivots[l2_idx]]
-                        break
+            
+            if l2_idx is not None:
+                # 3. Ищем максимум между ними (Highest High)
+                highs = [p for p in pivots[l1_idx+1:l2_idx] if p[1] == 'high']
+                if highs:
+                    h1 = max(highs, key=lambda x: x[2])
+                    channel_data = {
+                        'p1': (pivots[l1_idx][0], pivots[l1_idx][2]), # База луча (L1)
+                        'p2': (pivots[l2_idx][0], pivots[l2_idx][2]), # 2-я точка луча (L2)
+                        'p3': (h1[0], h1[2])                          # Параллель (H1)
+                    }
+                    # Плашки для отрисовки
+                    annotations = [pivots[l1_idx], h1, pivots[l2_idx]]
 
     elif trend_direction == "Тренд вниз":
         # 1. Ищем абсолютный максимум на видимом участке
@@ -144,22 +147,24 @@ def get_sperandeo_geometry(df, trend_direction, deviation_pct=0.05):
                 h1_idx = i
         
         if h1_idx is not None:
-            # 2. Ищем следующий максимум, который ниже первого (Lower High)
+            # 2. Ищем ПОСЛЕДНИЙ максимум, который ниже первого (Lower High)
+            h2_idx = None
             for i in range(h1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'high' and pivots[i][2] < pivots[h1_idx][2]:
                     h2_idx = i
-                    # 3. Ищем минимум между ними (Lowest Low)
-                    lows = [p for p in pivots[h1_idx+1:h2_idx] if p[1] == 'low']
-                    if lows:
-                        l1 = min(lows, key=lambda x: x[2])
-                        channel_data = {
-                            'p1': (pivots[h1_idx][0], pivots[h1_idx][2]), # База луча (H1)
-                            'p2': (pivots[h2_idx][0], pivots[h2_idx][2]), # 2-я точка луча (H2)
-                            'p3': (l1[0], l1[2])                          # Параллель (L1)
-                        }
-                        # Плашки для отрисовки
-                        annotations = [pivots[h1_idx], l1, pivots[h2_idx]]
-                        break
+            
+            if h2_idx is not None:
+                # 3. Ищем минимум между ними (Lowest Low)
+                lows = [p for p in pivots[h1_idx+1:h2_idx] if p[1] == 'low']
+                if lows:
+                    l1 = min(lows, key=lambda x: x[2])
+                    channel_data = {
+                        'p1': (pivots[h1_idx][0], pivots[h1_idx][2]), # База луча (H1)
+                        'p2': (pivots[h2_idx][0], pivots[h2_idx][2]), # 2-я точка луча (H2)
+                        'p3': (l1[0], l1[2])                          # Параллель (L1)
+                    }
+                    # Плашки для отрисовки
+                    annotations = [pivots[h1_idx], l1, pivots[h2_idx]]
 
     # Сортируем плашки по времени, чтобы они шли по порядку
     annotations.sort(key=lambda x: x[0])
