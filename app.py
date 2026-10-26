@@ -19,6 +19,8 @@ try:
         st.session_state["sb_strategy"] = global_settings.get("strategy", "Зигзаг тенденции")
     if "sb_deposit" not in st.session_state:
         st.session_state["sb_deposit"] = global_settings.get("deposit", 75000)
+    if "sb_risk" not in st.session_state:
+        st.session_state["sb_risk"] = global_settings.get("risk_pct", 1.0)
     if "sb_comm" not in st.session_state:
         st.session_state["sb_comm"] = global_settings.get("commission", "Т-Инвестиции")
     if "sb_margin" not in st.session_state:
@@ -29,30 +31,24 @@ try:
     with st.sidebar:
         st.header("Параметры")
         
-        strategy = st.selectbox(
-            "Стратегия", 
-            ["Зигзаг тенденции", "Свинг торговля"], 
-            key="sb_strategy"
-        )
+        strategy = st.selectbox("Стратегия", ["Зигзаг тенденции", "Свинг торговля"], key="sb_strategy")
         
-        deposit = st.number_input(
-            "Депозит, ₽", min_value=1_000, step=1_000, key="sb_deposit"
+        deposit = st.number_input("Депозит, ₽", min_value=1_000, step=1_000, key="sb_deposit")
+        
+        risk_pct = st.number_input(
+            "Риск на сделку, %", min_value=0.1, max_value=100.0, step=0.1, 
+            key="sb_risk", help="Максимальный риск в одной сделке"
         )
         
         commission = st.selectbox(
-            "Комиссия", 
-            ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], 
-            key="sb_comm"
+            "Комиссия", ["Т-Инвестиции", "Финам СТАНДАРТНЫЙ ФОРТС", "Без комиссии"], key="sb_comm"
         )
         
-        margin_type = st.selectbox(
-            "Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"], 
-            key="sb_margin"
-        )
+        margin_type = st.selectbox("Тип ГО (базовый)", ["НАЧ. ГО", "КНУР", "КСУР", "КПУР", "КОУР"], key="sb_margin")
         
         rr_ratio = st.number_input(
             "Risk Reward (1 к ...)", min_value=1.0, step=0.5, key="sb_rr",
-            help="Глобальное соотношение риска к прибыли для всех калькуляторов"
+            help="Глобальное соотношение риска к прибыли"
         )
         
         if st.button("Обновить данные", use_container_width=True):
@@ -66,11 +62,8 @@ try:
         filename = datetime.now().strftime('%d.%m.%y.%H-%M') + ".futures"
         
         st.download_button(
-            label="Экспорт сессии",
-            data=cache_str,
-            file_name=filename,
-            mime="application/json",
-            use_container_width=True,
+            label="Экспорт сессии", data=cache_str, file_name=filename,
+            mime="application/json", use_container_width=True,
         )
         
         uploaded_file = st.file_uploader("Импорт сессии", type=["futures", "json"])
@@ -87,11 +80,8 @@ try:
                     st.error("Ошибка: неверный формат файла.")
 
     new_global_settings = {
-        "strategy": strategy,
-        "deposit": deposit,
-        "commission": commission,
-        "margin_type": margin_type,
-        "rr_ratio": rr_ratio
+        "strategy": strategy, "deposit": deposit, "risk_pct": risk_pct,
+        "commission": commission, "margin_type": margin_type, "rr_ratio": rr_ratio
     }
     if new_global_settings != global_settings:
         save_trend_cache("_global", new_global_settings)
@@ -112,10 +102,7 @@ try:
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
-        render_main_tab(
-            api_df=api_df, go_df=go_df, md_df=md_df, 
-            iss_df=iss_df, deposit=deposit, margin_type=margin_type
-        )
+        render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=deposit, margin_type=margin_type)
 
     with tabs[1]:
         render_screener(iss_df=iss_df)
@@ -123,13 +110,9 @@ try:
     for i, ticker in enumerate(st.session_state["active_tickers"]):
         with tabs[2 + i]:
             render_trade_planner(
-                ticker=ticker,
-                api_df=api_df, go_df=go_df, md_df=md_df,
-                iss_df=iss_df,
-                deposit=deposit,
-                rr_ratio=rr_ratio,
-                commission=commission,
-                strategy=strategy,
+                ticker=ticker, api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df,
+                deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio,
+                commission=commission, strategy=strategy,
             )
 
 except Exception as e:
