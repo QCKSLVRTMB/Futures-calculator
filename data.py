@@ -135,6 +135,52 @@ def fetch_moex_forts() -> pd.DataFrame:
 
 
 # ==========================================
+# 2b. ЗАГРУЗКА ГО ПО УРОВНЯМ РИСКА (IMS)
+# ==========================================
+MOEX_IMS_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/ims"
+
+@st.cache_data(ttl=60, show_spinner="Загрузка ГО (IMS)…")
+def fetch_moex_ims() -> pd.DataFrame:
+    """
+    Загружает значения гарантийного обеспечения по уровням риска.
+    Возвращает DataFrame с колонками:
+    SECID, BOARDID, IM_TIME, IM_BUY, IM_SELL, IM_BUY_LRC, IM_SELL_LRC,
+    IM_BUY_MRC, IM_SELL_MRC, IM_BUY_HRC, IM_SELL_HRC, IM_BUY_ERC, IM_SELL_ERC
+    """
+    params = {"iss.meta": "off", "format": "json"}
+    try:
+        r = requests.get(MOEX_IMS_URL, params=params, timeout=15)
+        r.raise_for_status()
+        js = r.json()
+        block = js.get("ims")
+        if not block or not block.get("data"):
+            return pd.DataFrame()
+        df = pd.DataFrame(block["data"], columns=block["columns"])
+    except Exception:
+        # fallback: попробуем CSV
+        try:
+            r = requests.get(MOEX_IMS_URL, params={"iss.meta": "off"}, timeout=15)
+            r.raise_for_status()
+            from io import StringIO
+            df = pd.read_csv(StringIO(r.text), sep="|")
+            # очищаем названия колонок от описаний
+            df.columns = [c.split("(")[0].strip() for c in df.columns]
+        except Exception as e:
+            st.warning(f"Не удалось загрузить данные ГО (IMS): {e}")
+            return pd.DataFrame()
+
+    numeric_cols = ["IM_BUY", "IM_SELL", "IM_BUY_LRC", "IM_SELL_LRC",
+                    "IM_BUY_MRC", "IM_SELL_MRC", "IM_BUY_HRC", "IM_SELL_HRC",
+                    "IM_BUY_ERC", "IM_SELL_ERC"]
+    for c in numeric_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    if "IM_TIME" in df.columns:
+        df["IM_TIME"] = pd.to_datetime(df["IM_TIME"], errors="coerce")
+    return df
+
+
+# ==========================================
 # 3. ЗАГРУЗКА СВЕЧЕЙ (Исторические данные)
 # ==========================================
 MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/{ticker}/candles.json"
@@ -218,7 +264,6 @@ def build_export_cache() -> dict:
     """Собирает полный JSON-кэш из текущего st.session_state и файла."""
     cache = load_trend_cache()
 
-    # 1. Глобальные настройки sidebar
     if "sb_strategy" in st.session_state:
         cache["_global"] = {
             "strategy": st.session_state.get("sb_strategy", "Зигзаг тенденции"),
@@ -230,11 +275,9 @@ def build_export_cache() -> dict:
             "mobile_view": st.session_state.get("sb_mobile", False),
         }
 
-    # 2. Список активных вкладок и состояние главной таблицы
     cache["_active_tickers"] = st.session_state.get("active_tickers", [])
     cache["_market_state"] = st.session_state.get("market_state", {})
 
-    # 3. Данные по каждому активному тикеру
     active_tickers = st.session_state.get("active_tickers", [])
     for ticker in active_tickers:
         pts_keys = {
@@ -254,18 +297,15 @@ def build_export_cache() -> dict:
                 pts = st.session_state.get(skey, [])
                 ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
 
-        # Точки входа
         entries_key = f"deal_{ticker}_entries_raw"
         if entries_key in st.session_state:
             try:
-                df_entries = st.session_state[entries_key]
-                ticker_data["entries"] = df_entries.to_dict("records")
+                ticker_data["entries"] = st.session_state[entries_key].to_dict("records")
             except Exception:
                 ticker_data["entries"] = []
         else:
             ticker_data["entries"] = []
 
-        # SL/TP/Направление
         ticker_data["sl_price"] = st.session_state.get(f"deal_{ticker}_sl_price", None)
         ticker_data["tp_price"] = st.session_state.get(f"deal_{ticker}_tp_price", None)
         ticker_data["direction"] = st.session_state.get(f"deal_{ticker}_dir", None)
