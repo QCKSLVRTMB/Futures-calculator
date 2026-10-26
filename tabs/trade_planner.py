@@ -53,54 +53,42 @@ def detect_trend(df):
     return "Боковик"
 
 def get_zigzag_pivots_tw(df, depth=4, deviation_pct=0.07):
-    """
-    Точная реализация индикатора ZigZag из TradingView.
-    depth: количество баров для поиска локального экстремума (по умолчанию 4)
-    deviation_pct: процент отката для подтверждения (по умолчанию 7%)
-    """
+    """Индикатор ZigZag (TradingView style)."""
     pivots = []
     if len(df) < depth * 2:
         return pivots
 
-    # 1. Поиск локальных экстремумов (High и Low) с учетом параметра Depth
     potential_pivots = []
     for i in range(depth, len(df) - depth):
-        # Проверяем, является ли бар локальным максимумом
         is_high = all(df['High'].iloc[i] >= df['High'].iloc[i-j] for j in range(1, depth+1)) and \
                   all(df['High'].iloc[i] >= df['High'].iloc[i+j] for j in range(1, depth+1))
         if is_high:
             potential_pivots.append((df.index[i], 'high', df['High'].iloc[i]))
 
-        # Проверяем, является ли бар локальным минимумом
         is_low = all(df['Low'].iloc[i] <= df['Low'].iloc[i-j] for j in range(1, depth+1)) and \
                  all(df['Low'].iloc[i] <= df['Low'].iloc[i+j] for j in range(1, depth+1))
         if is_low:
             potential_pivots.append((df.index[i], 'low', df['Low'].iloc[i]))
 
-    # Сортируем потенциальные точки по времени
     potential_pivots.sort(key=lambda x: x[0])
 
     if not potential_pivots:
         return []
 
-    # 2. Фильтрация по Deviation (процент отклонения)
     pivots = [potential_pivots[0]]
     for current in potential_pivots[1:]:
         last = pivots[-1]
-        
-        # Если тип тот же самый (например, два high подряд), оставляем самый экстремальный
         if current[1] == last[1]:
             if (current[1] == 'high' and current[2] > last[2]) or \
                (current[1] == 'low' and current[2] < last[2]):
                 pivots[-1] = current
         else:
-            # Если тип разный, проверяем, было ли отклонение достаточным (Deviation)
             if last[1] == 'high':
-                drop_pct = (last[2] - current[2]) / last[2] # Падение
+                drop_pct = (last[2] - current[2]) / last[2]
                 if drop_pct >= deviation_pct:
                     pivots.append(current)
             else:
-                rise_pct = (current[2] - last[2]) / last[2] # Рост
+                rise_pct = (current[2] - last[2]) / last[2]
                 if rise_pct >= deviation_pct:
                     pivots.append(current)
 
@@ -108,10 +96,18 @@ def get_zigzag_pivots_tw(df, depth=4, deviation_pct=0.07):
 
 def get_sperandeo_geometry(df, trend_direction):
     """
-    Строит канал, используя ZigZag (TW style).
+    Строит канал с использованием адаптивного ZigZag. 
+    Если 7% слишком много для тикера, порог автоматически снижается.
     """
-    # Используем настройки как на вашем скриншоте: Depth=4, Deviation=7%
+    # Пытаемся использовать стандартные 7%
     pivots = get_zigzag_pivots_tw(df, depth=4, deviation_pct=0.07)
+    
+    # Если точек мало, снижаем порог для поиска структуры
+    if len(pivots) < 3:
+        for dev in [0.05, 0.03, 0.02, 0.01]:
+            pivots = get_zigzag_pivots_tw(df, depth=4, deviation_pct=dev)
+            if len(pivots) >= 3:
+                break
     
     if len(pivots) < 3:
         return None, []
@@ -120,7 +116,6 @@ def get_sperandeo_geometry(df, trend_direction):
     annotations = []
 
     if trend_direction == "Тренд вверх":
-        # 1. Ищем глобальный минимум (L1)
         l1_idx = None
         min_low = float('inf')
         for i, p in enumerate(pivots):
@@ -129,15 +124,13 @@ def get_sperandeo_geometry(df, trend_direction):
                 l1_idx = i
         
         if l1_idx is not None:
-            # 2. Ищем следующий валидный минимум (L2), который выше L1
             l2_idx = None
             for i in range(l1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'low' and pivots[i][2] > pivots[l1_idx][2]:
                     l2_idx = i
-                    break # Берем первый же валидный откат
+                    break 
             
             if l2_idx is not None:
-                # 3. Ищем максимум (H1) между L1 и L2
                 highs = [p for p in pivots[l1_idx+1:l2_idx] if p[1] == 'high']
                 if highs:
                     h1 = max(highs, key=lambda x: x[2])
@@ -149,7 +142,6 @@ def get_sperandeo_geometry(df, trend_direction):
                     annotations = [pivots[l1_idx], h1, pivots[l2_idx]]
 
     elif trend_direction == "Тренд вниз":
-        # 1. Ищем глобальный максимум (H1)
         h1_idx = None
         max_high = -float('inf')
         for i, p in enumerate(pivots):
@@ -158,7 +150,6 @@ def get_sperandeo_geometry(df, trend_direction):
                 h1_idx = i
         
         if h1_idx is not None:
-            # 2. Ищем следующий валидный максимум (H2), который ниже H1
             h2_idx = None
             for i in range(h1_idx + 1, len(pivots)):
                 if pivots[i][1] == 'high' and pivots[i][2] < pivots[h1_idx][2]:
@@ -166,7 +157,6 @@ def get_sperandeo_geometry(df, trend_direction):
                     break
             
             if h2_idx is not None:
-                # 3. Ищем минимум (L1) между H1 и H2
                 lows = [p for p in pivots[h1_idx+1:h2_idx] if p[1] == 'low']
                 if lows:
                     l1 = min(lows, key=lambda x: x[2])
