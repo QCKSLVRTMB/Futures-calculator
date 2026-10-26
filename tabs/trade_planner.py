@@ -109,18 +109,53 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1: строго по кликам A, C, B (A и C — база, B — параллель)
+    # ==== Канал D1 ====
     if d1_pts and len(d1_pts) == 3:
-        t_A, p_A = d1_pts[0]
-        t_C, p_C = d1_pts[1]
-        t_B, p_B = d1_pts[2]
+        t1, p1 = d1_pts[0]
+        t2, p2 = d1_pts[1]
+        t3, p3 = d1_pts[2]
 
-        time_A = t_A.timestamp()
-        time_C = t_C.timestamp()
-        time_B = t_B.timestamp()
+        # Определяем тип каждой точки (High или Low) по её позиции на свече
+        def is_high_point(t, p):
+            try:
+                bar = df_chart.loc[t]
+                return abs(p - bar['High']) < abs(p - bar['Low'])
+            except:
+                return False
 
-        dt_AC = time_C - time_A if time_C != time_A else 1
-        slope_time = (p_C - p_A) / dt_AC
+        h1 = is_high_point(t1, p1)
+        h2 = is_high_point(t2, p2)
+        h3 = is_high_point(t3, p3)
+
+        # Находим две точки одного типа (они образуют базовую линию)
+        if h1 == h2 and h1 != h3:
+            base1, base2 = (t1, p1), (t2, p2)
+            parallel = (t3, p3)
+        elif h1 == h3 and h1 != h2:
+            base1, base2 = (t1, p1), (t3, p3)
+            parallel = (t2, p2)
+        elif h2 == h3 and h2 != h1:
+            base1, base2 = (t2, p2), (t3, p3)
+            parallel = (t1, p1)
+        else:
+            # Если все три одинаковые (маловероятно), берем первые две
+            base1, base2 = (t1, p1), (t2, p2)
+            parallel = (t3, p3)
+
+        # Упорядочиваем базовые точки по времени (слева направо)
+        if base1[0] > base2[0]:
+            base1, base2 = base2, base1
+
+        x1_ts, p1_base = base1
+        x2_ts, p2_base = base2
+        x3_ts, p3_par = parallel
+
+        time1 = x1_ts.timestamp()
+        time2 = x2_ts.timestamp()
+        time3 = x3_ts.timestamp()
+
+        dt_12 = time2 - time1 if time2 != time1 else 1
+        slope_time = (p2_base - p1_base) / dt_12
 
         if is_intraday:
             time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
@@ -130,31 +165,25 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         dt_end = df_chart.index[-1] + time_buffer
         time_end = dt_end.timestamp()
 
-        # Базовая линия (через A и C)
-        y_ray_A_end = slope_time * (time_end - time_A) + p_A
-        # Параллельная линия (через B)
-        y_ray_B_end = slope_time * (time_end - time_B) + p_B
+        # Базовая линия (через 2 однотипные точки)
+        y_ray1_end = slope_time * (time_end - time1) + p1_base
+        # Параллельная линия (через 3-ю точку)
+        y_ray2_end = slope_time * (time_end - time3) + p3_par
 
         fig.add_shape(
-            type="line", x0=t_A, y0=p_A, x1=dt_end, y1=y_ray_A_end,
+            type="line", x0=x1_ts, y0=p1_base, x1=dt_end, y1=y_ray1_end,
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
         fig.add_shape(
-            type="line", x0=t_B, y0=p_B, x1=dt_end, y1=y_ray_B_end,
+            type="line", x0=x3_ts, y0=p3_par, x1=dt_end, y1=y_ray2_end,
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
-
-        # Сортируем точки для красивого отображения подписей A, B, C
-        sorted_plot_pts = sorted([(t_A, p_A, "A"), (t_B, p_B, "B"), (t_C, p_C, "C")], key=lambda x: x[0])
-        px = [p[0] for p in sorted_plot_pts]
-        py = [p[1] for p in sorted_plot_pts]
-        ptext = [p[2] for p in sorted_plot_pts]
 
         fig.add_trace(go.Scatter(
-            x=px, y=py,
+            x=[t1, t2, t3], y=[p1, p2, p3],
             mode='markers+text',
             marker=dict(color='blue', size=12),
-            text=ptext, textposition="top center",
+            text=["A", "C", "B"], textposition="top center",
             textfont=dict(color="blue", size=12),
             name='Точки канала D1', showlegend=False
         ), row=1, col=1)
@@ -671,39 +700,28 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             pts = st.session_state[active_skey]
                             new_pts = pts.copy()
 
-                            # === МАГНИТ К ЭКСТРЕМУМАМ ===
-                            window = 5
+                            # === МАГНИТ К ЭКСТРЕМУМАМ (Независимо от порядка кликов) ===
+                            window = 3
                             start_idx = max(0, idx - window)
                             end_idx = min(len(df_view) - 1, idx + window)
                             window_df = df_view.iloc[start_idx:end_idx + 1]
                             
                             bar = df_view.iloc[idx]
                             
-                            if active_k == "d1_chan":
-                                if len(new_pts) == 0:
-                                    is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
-                                elif len(new_pts) == 1:
-                                    first_time, first_y = new_pts[0]
-                                    first_is_low = abs(first_y - df_view.loc[first_time, 'Low']) < abs(first_y - df_view.loc[first_time, 'High'])
-                                    is_low = first_is_low
-                                elif len(new_pts) == 2:
-                                    first_time, first_y = new_pts[0]
-                                    first_is_low = abs(first_y - df_view.loc[first_time, 'Low']) < abs(first_y - df_view.loc[first_time, 'High'])
-                                    is_low = not first_is_low
-                            else:
-                                is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                            # Определяем, куда кликнули: ближе к High или Low
+                            is_high = abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
 
-                            if is_low:
-                                ext_idx = window_df['Low'].idxmin()
-                                snapped_time = ext_idx
-                                snapped_y = float(window_df.loc[ext_idx, 'Low'])
-                            else:
+                            if is_high:
                                 ext_idx = window_df['High'].idxmax()
                                 snapped_time = ext_idx
                                 snapped_y = float(window_df.loc[ext_idx, 'High'])
+                            else:
+                                ext_idx = window_df['Low'].idxmin()
+                                snapped_time = ext_idx
+                                snapped_y = float(window_df.loc[ext_idx, 'Low'])
                             
                             bar = df_view.loc[snapped_time]
-                            # =============================
+                            # =============================================================
 
                             same_bar_last = (
                                 bool(new_pts)
