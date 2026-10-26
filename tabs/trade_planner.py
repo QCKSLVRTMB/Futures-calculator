@@ -16,16 +16,6 @@ INTERVALS = {
 def _div(a, b, default=0.0):
     return a / b if b else default
 
-def check_zigzag_pattern(a, b, c, d, direction):
-    if direction == "LONG":
-        if a < b and b > c and c < d and b > d and a < c:
-            return True, "Структура LONG соответствует: a<b>c<d (b>d)"
-        return False, "Структура LONG НЕ соответствует: нужно a<b>c<d (b>d) и a<c"
-    else:
-        if a > b and b < c and c > d and b < d and a > c:
-            return True, "Структура SHORT соответствует: a>b<c>d (b<d)"
-        return False, "Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
-
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
     if df_period.empty:
@@ -509,10 +499,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
-    if all_filled:
-        ok, msg = check_zigzag_pattern(p_a, p_b, p_c, p_d, direction)
-        (st.success if ok else st.warning)(msg)
-
     # Выбор активного инструмента
     active_tool = st.radio(
         "Выберите инструмент для рисования", 
@@ -728,18 +714,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
 
-    if direction == "LONG" and sl_price >= avg_entry:
-        st.error("Для LONG SL (A) должен быть ниже входа (C).")
-        return
-    if direction == "SHORT" and sl_price <= avg_entry:
-        st.error("Для SHORT SL (B) должен быть выше входа (C).")
-        return
-    if direction == "LONG" and p_d <= p_c:
-        st.error("Для LONG точка D должна быть выше C.")
-        return
-    if direction == "SHORT" and p_d >= p_c:
-        st.error("Для SHORT точка D должна быть ниже C.")
-        return
+    # Убраны все проверки, блокирующие расчет.
 
     st.markdown("#### Параметры сделки")
     p1, p2 = st.columns(2)
