@@ -46,16 +46,14 @@ def analyze_manual_zigzag(pts, df):
         c_time, c_price = p_c
         d_time, d_price = p_d
         
-        # Восходящая тенденция
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             breakout_magnitude = d_price - b_price
             
-            # Проверяем наличие отката E
             has_pullback = False
             e_time = e_price = None
             retracement_pct = None
-            verdict = None
+            pullback_verdict = None
             
             if i + 1 < len(pts):
                 e_time, e_price = pts[i+1]
@@ -63,13 +61,12 @@ def analyze_manual_zigzag(pts, df):
                     has_pullback = True
                     if breakout_magnitude > 0:
                         retracement_pct = (d_price - e_price) / breakout_magnitude * 100
-                        
                     if e_price > b_price:
-                        verdict = "strong"
+                        pullback_verdict = "strong"
                     elif e_price < b_price:
-                        verdict = "weak"
+                        pullback_verdict = "weak"
                     else:
-                        verdict = "normal"
+                        pullback_verdict = "normal"
 
             breakouts.append({
                 "trend": "up",
@@ -87,10 +84,9 @@ def analyze_manual_zigzag(pts, df):
                 "pullback_time": e_time,
                 "pullback_price": e_price,
                 "retracement_pct": retracement_pct,
-                "verdict": verdict,
+                "pullback_verdict": pullback_verdict,
             })
             
-        # Нисходящая тенденция
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             breakout_magnitude = b_price - d_price
@@ -98,7 +94,7 @@ def analyze_manual_zigzag(pts, df):
             has_pullback = False
             e_time = e_price = None
             retracement_pct = None
-            verdict = None
+            pullback_verdict = None
             
             if i + 1 < len(pts):
                 e_time, e_price = pts[i+1]
@@ -106,13 +102,12 @@ def analyze_manual_zigzag(pts, df):
                     has_pullback = True
                     if breakout_magnitude > 0:
                         retracement_pct = (e_price - d_price) / breakout_magnitude * 100
-                        
                     if e_price < b_price:
-                        verdict = "strong"
+                        pullback_verdict = "strong"
                     elif e_price > b_price:
-                        verdict = "weak"
+                        pullback_verdict = "weak"
                     else:
-                        verdict = "normal"
+                        pullback_verdict = "normal"
 
             breakouts.append({
                 "trend": "down",
@@ -130,9 +125,30 @@ def analyze_manual_zigzag(pts, df):
                 "pullback_time": e_time,
                 "pullback_price": e_price,
                 "retracement_pct": retracement_pct,
-                "verdict": verdict,
+                "pullback_verdict": pullback_verdict,
             })
-            
+
+    # --- ОЦЕНКА ПРОБОЕВ ---
+    for i, brk in enumerate(breakouts):
+        if i == 0:
+            brk['breakout_verdict'] = "base"
+            brk['breakout_ratio'] = None
+        else:
+            prev_mag = breakouts[i-1]['breakout_magnitude']
+            curr_mag = brk['breakout_magnitude']
+            if prev_mag > 0:
+                ratio = curr_mag / prev_mag
+                brk['breakout_ratio'] = ratio
+                if ratio >= 1.15:
+                    brk['breakout_verdict'] = "strong"
+                elif ratio <= 0.85:
+                    brk['breakout_verdict'] = "weak"
+                else:
+                    brk['breakout_verdict'] = "normal"
+            else:
+                brk['breakout_verdict'] = "normal"
+                brk['breakout_ratio'] = None
+                
     return breakouts
 
 def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_tend_pts=None, h1_fib_pts=None, m10_zig_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None):
@@ -165,7 +181,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # 1. Канал D1 (по 3 точкам)
     if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]
         t2, p2 = d1_pts[1]
@@ -208,7 +223,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Точки канала D1', showlegend=False
         ), row=1, col=1)
 
-    # 2. Fib 0.5 D1
     if d1_fib_pts and len(d1_fib_pts) == 2:
         t1, p1 = d1_fib_pts[0]
         t2, p2 = d1_fib_pts[1]
@@ -227,7 +241,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # 3. Fib 0.5 H1
     if h1_fib_pts and len(h1_fib_pts) == 2:
         t1, p1 = h1_fib_pts[0]
         t2, p2 = h1_fib_pts[1]
@@ -246,7 +259,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # 4. H1 Тенденция (Зеленая)
     if h1_tend_pts:
         mx = [p[0] for p in h1_tend_pts]
         my = [p[1] for p in h1_tend_pts]
@@ -258,7 +270,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Тенденция (H1)'
         ), row=1, col=1)
 
-    # 5. M10 Зигзаг (Красный)
     if (is_h1 or is_m10) and m10_zig_pts:
         mx = [p[0] for p in m10_zig_pts]
         my = [p[1] for p in m10_zig_pts]
@@ -305,7 +316,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     layer="below", xref="x", yref="y", row=1, col=1
                 )
 
-    # 6. Пробои и откаты по H1 Тенденции
     breakouts = []
     if is_h1 and h1_tend_pts:
         breakouts = analyze_manual_zigzag(h1_tend_pts, df_chart)
@@ -313,15 +323,30 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         drawn_coords = set()
         
         for brk in breakouts:
-            breakout_bg = "rgba(13, 110, 253, 0.9)"
-            line_color_breakout = "#0d6efd"
-            line_color_pullback = "#fd7e14"
+            # --- Отрисовка Пробоя ---
+            verdict = brk['breakout_verdict']
+            ratio = brk['breakout_ratio']
             
-            # --- ПРОБОЙ (Синий) ---
+            if verdict == "strong":
+                breakout_bg = "rgba(13, 110, 253, 0.9)" # Синий
+            elif verdict == "weak":
+                breakout_bg = "rgba(108, 117, 125, 0.9)" # Серый
+            elif verdict == "normal":
+                breakout_bg = "rgba(23, 162, 184, 0.9)" # Бирюзовый
+            else:
+                breakout_bg = "rgba(13, 110, 253, 0.9)" # Базовый
+
+            line_color_breakout = "#0d6efd"
+            ratio_text = f" (x{ratio:.1f})" if ratio else ""
+            
+            verdict_map = {"strong": "СИЛЬНЫЙ", "weak": "СЛАБЫЙ", "normal": "НОРМАЛЬНЫЙ", "base": "БАЗОВЫЙ"}
+            v_text = verdict_map.get(verdict, "")
+
             breakout_text = (
-                f"Δ: {brk['breakout_magnitude']:.{decimals}f}<br>"
+                f"Δ: {brk['breakout_magnitude']:.{decimals}f}{ratio_text}<br>"
                 f"Бар: {brk['breakout_bars']}<br>"
-                f"Vol: {brk['breakout_volume']:,.0f}"
+                f"Vol: {brk['breakout_volume']:,.0f}<br>"
+                f"Оценка: <b>{v_text}</b>"
             )
             
             # Плашка у пика (D)
@@ -383,18 +408,22 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 row=1, col=1
             )
 
-            # --- ОТКАТ (Оранжевый/Зеленый/Красный) ---
+            # --- Отрисовка Отката ---
             if brk['has_pullback']:
-                if brk['verdict'] == "strong":
-                    pullback_bg = "rgba(25, 135, 84, 0.9)"  # Зеленый
-                elif brk['verdict'] == "weak":
-                    pullback_bg = "rgba(220, 53, 69, 0.9)"  # Красный
+                p_verdict = brk['pullback_verdict']
+                if p_verdict == "strong":
+                    pullback_bg = "rgba(25, 135, 84, 0.9)"
+                elif p_verdict == "weak":
+                    pullback_bg = "rgba(220, 53, 69, 0.9)"
                 else:
-                    pullback_bg = "rgba(253, 126, 20, 0.9)"  # Оранжевый
+                    pullback_bg = "rgba(253, 126, 20, 0.9)"
+
+                p_verdict_map = {"strong": "СИЛЬНЫЙ", "weak": "СЛАБЫЙ", "normal": "НОРМАЛЬНЫЙ"}
+                p_v_text = p_verdict_map.get(p_verdict, "")
 
                 pullback_text = (
                     f"Откат: {brk['retracement_pct']:.1f}%<br>"
-                    f"Оценка: {brk['verdict'].upper()}"
+                    f"Оценка: <b>{p_v_text}</b>"
                 )
                 
                 pull_key = (brk['pullback_time'], brk['pullback_price'])
@@ -411,7 +440,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     )
                     drawn_coords.add(pull_key)
 
-                # Линии отката (от D до E)
                 fig.add_shape(
                     type="line", x0=brk['peak_time'], y0=brk['peak_price'], 
                     x1=brk['peak_time'], y1=brk['pullback_price'],
@@ -434,7 +462,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     row=1, col=1
                 )
 
-    # Объемы
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
@@ -808,9 +835,10 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                                 "Уровень сопр.": b["resistance_price"],
                                 "Пик (D)": b["peak_price"],
                                 "Δ Пробоя": b["breakout_magnitude"],
+                                "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b["breakout_verdict"], "-"),
                                 "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-",
                                 "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                                "Оценка": {"strong": "Сильная", "weak": "Слабая", "normal": "Нормальная"}.get(b["verdict"], "-")
+                                "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b["pullback_verdict"], "-") if b["has_pullback"] else "-"
                             }
                             for b in breakouts
                         ])
