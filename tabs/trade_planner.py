@@ -56,25 +56,21 @@ def get_sperandeo_geometry(df, trend_direction):
         return None, None, None, None, []
     
     if trend_direction == "Тренд вниз":
-        # Точка 1: Глобальный максимум
         p1_idx = df['High'].idxmax()
         p1_price = float(df.loc[p1_idx, 'High'])
         
         df_after_p1 = df.loc[p1_idx:]
         if len(df_after_p1) < 5: return p1_price, None, None, None, []
         
-        # Точка 2: Минимум после Точки 1
         p2_idx = df_after_p1['Low'].idxmin()
         p2_price = float(df.loc[p2_idx, 'Low'])
         
         df_after_p2 = df.loc[p2_idx:]
         if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
         
-        # Точка 3: Максимум после Точки 2
         p3_idx = df_after_p2['High'].idxmax()
         p3_price = float(df.loc[p3_idx, 'High'])
         
-        # Проверка пробоя
         df_after_p3 = df.loc[p3_idx:]
         is_breakout = len(df_after_p3) > 0 and df_after_p3['Low'].min() < p2_price
         
@@ -86,25 +82,21 @@ def get_sperandeo_geometry(df, trend_direction):
         return p1_price, p2_price, p3_price, None, []
         
     elif trend_direction == "Тренд вверх":
-        # Точка 1: Глобальный минимум
         p1_idx = df['Low'].idxmin()
         p1_price = float(df.loc[p1_idx, 'Low'])
         
         df_after_p1 = df.loc[p1_idx:]
         if len(df_after_p1) < 5: return p1_price, None, None, None, []
         
-        # Точка 2: Максимум после Точки 1
         p2_idx = df_after_p1['High'].idxmax()
         p2_price = float(df.loc[p2_idx, 'High'])
         
         df_after_p2 = df.loc[p2_idx:]
         if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
         
-        # Точка 3: Минимум после Точки 2
         p3_idx = df_after_p2['Low'].idxmin()
         p3_price = float(df.loc[p3_idx, 'Low'])
         
-        # Проверка пробоя
         df_after_p3 = df.loc[p3_idx:]
         is_breakout = len(df_after_p3) > 0 and df_after_p3['High'].max() > p2_price
         
@@ -117,7 +109,7 @@ def get_sperandeo_geometry(df, trend_direction):
         
     return None, None, None, None, []
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False):
     if df_chart.empty:
         return None
 
@@ -152,8 +144,33 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
+    # --- ЛОГИКА РАСКРАСКИ ОБЪЕМОВ ---
     if 'Volume' in df_chart.columns:
-        colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
+        colors = ['gray'] * len(df_chart)
+        volumes = df_chart['Volume'].values
+        times = df_chart.index
+
+        # 1. Общее правило: текущий > двух предыдущих
+        for i in range(2, len(df_chart)):
+            if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]:
+                colors[i] = 'black'
+
+        # 2. Специальное правило для H1 (10:00)
+        if is_h1:
+            for i in range(len(df_chart)):
+                if times[i].hour == 10 and times[i].minute == 0:
+                    prev_10s = []
+                    # Ищем два предыдущих бара 10:00
+                    for j in range(i-1, -1, -1):
+                        if times[j].hour == 10 and times[j].minute == 0:
+                            prev_10s.append(volumes[j])
+                            if len(prev_10s) == 2:
+                                break
+                    
+                    if len(prev_10s) == 2:
+                        if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
+                            colors[i] = 'black'
+
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
@@ -209,7 +226,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             slope_time = (y2 - y1) / dt_12
             
             if is_intraday:
-                time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
+                time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
             else:
                 time_buffer = pd.Timedelta(days=10)
                 
@@ -245,7 +262,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
 
     if len(df_chart) > 1:
         if is_intraday:
-            time_buffer = pd.Timedelta(hours=12) if title.endswith("H1") else pd.Timedelta(hours=2)
+            time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
         else:
             time_buffer = pd.Timedelta(days=10)
             
@@ -341,7 +358,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.markdown(f"**Тренд (D1):** {trend_d1}")
         c1, c2, c3 = st.columns(3)
         
-        # Передаем value как float, чтобы избежать ошибки MixedNumericTypes
         val1 = float(p1_auto) if p1_auto is not None else None
         val2 = float(p2_auto) if p2_auto is not None else None
         val3 = float(p3_auto) if p3_auto is not None else None
@@ -424,6 +440,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
 
             try:
                 is_d1 = (tf_name == "D1")
+                is_h1 = (tf_name == "H1")
                 
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
@@ -432,7 +449,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     decimals=decimals,
                     trend_text=trend_d1 if is_d1 else "",
                     channel_data=final_channel if is_d1 else None,
-                    annotations_data=final_annotations if is_d1 else None
+                    annotations_data=final_annotations if is_d1 else None,
+                    is_h1=is_h1
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
