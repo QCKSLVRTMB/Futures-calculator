@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pandas as pd
+import numpy as np
 from dataclasses import dataclass, field
 from core.config import IMS_MARGIN_MAP, MARGIN_COL_MAP, TARIFF_CONFIGS
 from core.market import to_float, vlookup
@@ -133,3 +134,81 @@ def _warnings(direction, entry, sl, tp, qty, qty_m, qty_r) -> list[str]:
     if qty_m and qty > qty_m: w.append(f"Объём превышает лимит по ГО ({qty_m} контр.).")
     if qty_r and qty > qty_r: w.append(f"Объём превышает риск-лимит ({qty_r} контр.).")
     return w
+
+# ==========================================
+# АНАЛИТИКА ГРАФИКОВ (Зигзаги, пробои, кластеры)
+# ==========================================
+def find_volume_clusters(df: pd.DataFrame, threshold_mult=3.0, window=20) -> list[dict]:
+    """Возвращает зоны для рисования кластеров (на основе аномальных объемов)."""
+    if df.empty or 'Volume' not in df.columns: return []
+    volumes = df['Volume'].values
+    rolling_avg = pd.Series(volumes).rolling(window=window, min_periods=5).mean().shift(1)
+    
+    zones = []
+    for i in range(len(df)):
+        avg = rolling_avg.iloc[i]
+        if pd.isna(avg) or avg <= 0: continue
+        if volumes[i] <= avg * threshold_mult: continue
+        
+        row = df.iloc[i]
+        is_buy = float(row['Close']) > float(row['Open'])
+        y_low = float(row['Low']) if is_buy else float(row['Close'])
+        y_high = float(row['Close']) if is_buy else float(row['High'])
+        
+        if y_high > y_low:
+            zones.append({"time": df.index[i], "low": y_low, "high": y_high, "is_buy": is_buy})
+    return zones
+
+def analyze_zigzag_breakouts(pts: list, df: pd.DataFrame) -> list[dict]:
+    """Анализирует ABCD паттерны для поиска пробоев и откатов."""
+    if len(pts) < 4: return []
+    breakouts = []
+    for i in range(3, len(pts)):
+        p_a, p_b, p_c, p_d = pts[i-3], pts[i-2], pts[i-1], pts[i]
+        a_time, a_price = pd.to_datetime(p_a[0]), p_a[1]
+        b_time, b_price = pd.to_datetime(p_b[0]), p_b[1]
+        c_time, c_price = pd.to_datetime(p_c[0]), p_c[1]
+        d_time, d_price = pd.to_datetime(p_d[0]), p_d[1]
+        
+        is_up = False
+        is_down = False
+        
+        if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
+            is_up = True
+            breakout_mag = d_price - b_price
+            retr_delta = b_price - c_price
+        elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
+            is_down = True
+            breakout_mag = b_price - d_price
+            retr_delta = c_price - b_price
+            
+        if is_up or is_down:
+            bars = len(df.loc[c_time:d_time])
+            vol = df.loc[c_time:d_time]['Volume'].sum()
+            retr_bars = len(df.loc[b_time:c_time])
+            retr_vol = df.loc[b_time:c_time]['Volume'].sum()
+            
+            has_pullback = False
+            e_time, e_price = None, None
+            retracement_pct = None
+            
+            if i + 1 < len(pts):
+                e_time, e_price = pd.to_datetime(pts[i+1][0]), pts[i+1][1]
+                if is_up and e_price < d_price:
+                    has_pullback = True
+                    retracement_pct = (d_price - e_price) / breakout_mag * 100 if breakout_mag > 0 else 0
+                elif is_down and e_price > d_price:
+                    has_pullback = True
+                    retracement_pct = (e_price - d_price) / breakout_mag * 100 if breakout_mag > 0 else 0
+            
+            breakouts.append({
+                "trend": "up" if is_up else "down",
+                "resistance_time": b_time, "resistance_price": b_price,
+                "pullback_time": c_time, "pullback_price": c_price,
+                "peak_time": d_time, "peak_price": d_price,
+                "breakout_mag": breakout_mag, "bars": bars, "volume": vol,
+                "retr_delta": retr_delta, "retr_bars": retr_bars, "retr_vol": retr_vol,
+                "has_pullback": has_pullback, "pullback_time": e_time, "pullback_price": e_price,
+                "retracement_pct": retracement_pct
+            })
+    return breakouts
