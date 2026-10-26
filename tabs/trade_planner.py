@@ -198,78 +198,52 @@ def analyze_manual_zigzag(pts, df):
     return breakouts
 
 
-# ============ КЛАСТЕРЫ ОБЪЁМОВ (H1) ============
-def calculate_volume_clusters(df, bin_size_pct=0.003, min_volume_ratio=1.5,
-                               max_cluster_bins=3, min_touches=3, top_n=10):
-    if df is None or df.empty or len(df) < 20:
+# ============ КЛАСТЕРЫ ОБЪЁМОВ (новая логика) ============
+def find_volume_cluster_zones(df_h1, threshold_mult=3.0, window=20):
+    """
+    Возвращает список зон, построенных по H1-барам с аномальным объёмом
+    (те, что в объёмной панели H1 красятся в зелёный).
+
+    Для каждого бара:
+    - бычий (close > open): зона = [low, close]  (как уровень покупок);
+    - медвежий (close <= open): зона = [close, high]  (как уровень продаж).
+
+    Каждая зона потом продлевается в обе стороны на графике и рисуется
+    полупрозрачным прямоугольником. Наложения копят альфу — где больше
+    наложений, там цвет ярче. Так и формируются видимые кластеры.
+    """
+    if df_h1 is None or df_h1.empty or 'Volume' not in df_h1.columns:
         return []
-    if 'Volume' not in df.columns:
-        return []
 
-    price_low = float(df['Low'].min())
-    price_high = float(df['High'].max())
-    price_range = price_high - price_low
-    if price_range <= 0:
-        return []
+    volumes = df_h1['Volume'].values
+    rolling_avg = pd.Series(volumes).rolling(window=window, min_periods=5).mean().shift(1)
 
-    n_bins = max(10, int(1.0 / bin_size_pct))
-    bin_size = price_range / n_bins
-
-    volume_profile = np.zeros(n_bins)
-    touch_count = np.zeros(n_bins, dtype=int)
-
-    for _, row in df.iterrows():
-        vol = float(row.get('Volume', 0) or 0)
-        if vol <= 0:
+    zones = []
+    for i in range(len(df_h1)):
+        avg = rolling_avg.iloc[i]
+        if pd.isna(avg) or avg <= 0:
             continue
-        b_low = float(row['Low'])
-        b_high = float(row['High'])
-        low_idx = int((b_low - price_low) / bin_size)
-        high_idx = int((b_high - price_low) / bin_size)
-        low_idx = max(0, min(low_idx, n_bins - 1))
-        high_idx = max(0, min(high_idx, n_bins - 1))
-        bar_bins = high_idx - low_idx + 1
-        if bar_bins <= 0:
+        if volumes[i] <= avg * threshold_mult:
             continue
-        vol_per_bin = vol / bar_bins
-        for b in range(low_idx, high_idx + 1):
-            volume_profile[b] += vol_per_bin
-            touch_count[b] += 1
 
-    avg_vol = float(volume_profile.mean())
-    if avg_vol <= 0:
-        return []
-    threshold = avg_vol * min_volume_ratio
-    significant = volume_profile >= threshold
+        row = df_h1.iloc[i]
+        is_buy = float(row['Close']) > float(row['Open'])
+        if is_buy:
+            y_low = float(row['Low'])
+            y_high = float(row['Close'])
+        else:
+            y_low = float(row['Close'])
+            y_high = float(row['High'])
 
-    clusters = []
-    i = 0
-    while i < n_bins:
-        if not significant[i]:
-            i += 1
-            continue
-        start = i
-        while i < n_bins and significant[i]:
-            i += 1
-        end = i - 1
-        n_in = end - start + 1
-        if n_in > max_cluster_bins:
-            continue
-        avg_touches = float(touch_count[start:end + 1].mean())
-        if avg_touches < min_touches:
-            continue
-        clusters.append({
-            "low": price_low + start * bin_size,
-            "high": price_low + (end + 1) * bin_size,
-            "volume": float(volume_profile[start:end + 1].sum()),
-            "avg_touches": avg_touches,
-            "bins": n_in,
-        })
-
-    clusters.sort(key=lambda c: -c['volume'])
-    clusters = clusters[:top_n]
-    clusters.sort(key=lambda c: c['low'])
-    return clusters
+        if y_high > y_low:
+            zones.append({
+                "time": df_h1.index[i],
+                "low": y_low,
+                "high": y_high,
+                "volume": float(volumes[i]),
+                "is_buy": is_buy,
+            })
+    return zones
 
 
 def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_tend_pts=None, h1_fib_pts=None, m10_zig_pts=None, h1_levels=None, strategy="Зигзаг тенденции", zoom_start_time=None, show_rr=True, show_levels=True, volume_clusters=None):
@@ -308,25 +282,29 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # ============ КЛАСТЕРЫ ОБЪЁМОВ (рисуются в фоне) ============
+    # ============ КЛАСТЕРЫ ОБЪЁМОВ ============
+    # Каждая зона рисуется полупрозрачным прямоугольником на всю ширину графика.
+    # Наложения накапливают альфу — где больше наложений, там цвет ярче.
     if volume_clusters:
         try:
             chart_start = df_chart.index[0]
         except Exception:
             chart_start = None
         if chart_start is not None:
-            for cl in volume_clusters:
+            for zone in volume_clusters:
                 try:
-                    y_low = float(cl["low"])
-                    y_high = float(cl["high"])
+                    y_low = float(zone["low"])
+                    y_high = float(zone["high"])
                     if y_high <= y_low:
                         continue
                     fig.add_shape(
-                        type="rect", x0=chart_start, x1=dt_end,
+                        type="rect",
+                        x0=chart_start, x1=dt_end,
                         y0=y_low, y1=y_high,
-                        fillcolor="rgba(255, 140, 0, 0.18)",
-                        line=dict(color="rgba(255, 140, 0, 0.75)", width=1),
-                        layer="below", xref="x", yref="y", row=1, col=1,
+                        fillcolor="rgba(255, 140, 0, 0.15)",
+                        line=dict(width=0),
+                        layer="below",
+                        xref="x", yref="y", row=1, col=1,
                     )
                 except Exception:
                     continue
@@ -626,17 +604,21 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
 
     # ============ ПЕРЕКЛЮЧАТЕЛЬ КЛАСТЕРОВ ============
     show_clusters = st.toggle("🎯 Кластеры объёмов (H1)", value=False, key=key("show_clusters"),
-                              help="Горизонтальные зоны повышенного объёма, рассчитанные по часовому ТФ. Отображаются на всех таймфреймах.")
+                              help="Зоны H1-баров с аномальным объёмом, продлённые горизонтально. "
+                                   "Чем больше наложений — тем ярче зона. Отображаются на всех таймфреймах.")
     clusters_data = []
     if show_clusters:
         try:
             h1_for_clusters = fetch_moex_candles(ticker, interval=60, days_back=30)
             if h1_for_clusters is not None and not h1_for_clusters.empty:
-                clusters_data = calculate_volume_clusters(h1_for_clusters)
+                clusters_data = find_volume_cluster_zones(h1_for_clusters)
                 if clusters_data:
-                    st.caption(f"Найдено кластеров: **{len(clusters_data)}** · узкие зоны повышенного объёма (H1)")
+                    st.caption(
+                        f"Аномальных баров H1: **{len(clusters_data)}** · "
+                        f"чем ярче зона, тем больше наложений"
+                    )
                 else:
-                    st.caption("Кластеры не обнаружены (нет узких зон с аномальным объёмом)")
+                    st.caption("Аномальных баров не обнаружено (нет объёмов > 3× среднего)")
             else:
                 st.caption("Недостаточно данных H1 для расчёта кластеров")
         except Exception as e:
