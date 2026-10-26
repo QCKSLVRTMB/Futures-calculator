@@ -31,6 +31,43 @@ ASSET_BA_MAP = {
 }
 
 
+# ============ ЕДИНЫЙ ФОРМАТ ЧИСЕЛ ============
+def _fmt_money(v):
+    """Денежный формат: 19747,62 ₽ (без разделителей тысяч, запятая, 2 знака)"""
+    try:
+        return f"{float(v):.2f}".replace(".", ",") + " ₽"
+    except Exception:
+        return str(v)
+
+
+def _fmt_price(v):
+    """Цена: 19747,62 (без разделителей тысяч, запятая, 2 знака)"""
+    try:
+        return f"{float(v):.2f}".replace(".", ",")
+    except Exception:
+        return str(v)
+
+
+def _fmt_int(v):
+    """Целое число: 19748 (без разделителей)"""
+    try:
+        return f"{int(round(float(v)))}"
+    except Exception:
+        return str(v)
+
+
+def _fmt_step(v):
+    """Шаг цены: 0,01 / 1 / 10 — без хвостовых нулей, запятая"""
+    try:
+        v = float(v)
+        if v == int(v):
+            return f"{int(v)}"
+        s = f"{v:.6f}".rstrip("0").rstrip(".")
+        return s.replace(".", ",")
+    except Exception:
+        return str(v)
+
+
 def _classify_ba_type(group, asset_code):
     """Тип БА: Индекс / Акция / Валюта / Товар / Ставка / Фонд / Прочее."""
     g = str(group).lower() if group else ""
@@ -165,18 +202,21 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     sample_text = ""
     if not sample_row.empty and ims_source_ok:
         try:
-            sample_text = f" · пример {sample_ticker}: {float(sample_row.iloc[0][buy_col]):,.0f} / {float(sample_row.iloc[0][sell_col]):,.0f} ₽"
+            sample_text = (
+                f" · пример {sample_ticker}: "
+                f"{_fmt_money(sample_row.iloc[0][buy_col])} / {_fmt_money(sample_row.iloc[0][sell_col])}"
+            )
         except Exception:
             sample_text = ""
 
     if ims_source_ok:
         st.caption(
-            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · "
+            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{_fmt_money(deposit)}** · "
             f"Источник ГО: IMS (`{buy_col}` / `{sell_col}`){sample_text}"
         )
     else:
         st.caption(
-            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · "
+            f"Тариф: **{commission}** · Тип ГО: **{margin_type}** · Депозит: **{_fmt_money(deposit)}** · "
             f"Источник ГО: Google Sheets / INITIALMARGIN"
         )
 
@@ -237,7 +277,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
             "Только помещающиеся в депозит",
             value=False,
             key="scr_fit",
-            help=f"Скрыть контракты, на которые не хватает депозита ({deposit:,.0f} ₽) при выбранном типе ГО ({margin_type}).",
+            help=f"Скрыть контракты, на которые не хватает депозита ({_fmt_money(deposit)}) при выбранном типе ГО ({margin_type}).",
         )
         only_nearest = st.checkbox(
             "Только ближайшие контракты",
@@ -262,7 +302,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     if only_traded:
         view = view[view["VALTODAY"].fillna(0) > 0]
 
-    # --- только ближайшие контракты (один на ASSETCODE) ---
     if only_nearest and not view.empty:
         mask_valid = view["ASSETCODE"].fillna("").astype(str) != ""
         if mask_valid.any():
@@ -278,7 +317,6 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     total_before = len(df)
     total_after = len(view)
 
-    # Подпись о текущем отборе
     filter_desc = []
     if search:
         filter_desc.append(f"поиск «{search}»")
@@ -334,25 +372,29 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         return [""] * len(row)
 
     styled = out.style.apply(_row_style, axis=1).format({
-        "Текущая цена": "{:,.2f}",
-        "Стоимость контракта": "{:,.0f} ₽",
-        "ГО (ISS sec)": "{:,.0f} ₽",
-        "ГО LONG": "{:,.0f} ₽",
-        "ГО SHORT": "{:,.0f} ₽",
-        "ГО (min)": "{:,.0f} ₽",
-        "Макс. контрактов": "{:,.0f}",
-        "Доступных лотов": "{:,.0f}",
-        "Открытых позиций": "{:,.0f}",
-        "Лот": "{:,.0f}",
-        "Шаг цены": "{:,.6g}",
-        "Стоимость шага цены": "{:,.2f}",
-        "Предыдущая цена": "{:,.2f}",
-        "Расчетная цена": "{:,.2f}",
-        "Верхний лимит": "{:,.2f}",
-        "Нижний лимит": "{:,.2f}",
-        "Комиссия на 1 сделку": "{:,.2f} ₽",
-        "Комиссия на адресную сделку": "{:,.2f} ₽",
-        "Клиринговая комиссия": "{:,.2f} ₽",
+        # ---- ДЕНЬГИ ----
+        "Стоимость контракта": _fmt_money,
+        "ГО (ISS sec)":        _fmt_money,
+        "ГО LONG":             _fmt_money,
+        "ГО SHORT":            _fmt_money,
+        "ГО (min)":            _fmt_money,
+        "Стоимость шага цены": _fmt_money,
+        "Комиссия на 1 сделку":      _fmt_money,
+        "Комиссия на адресную сделку": _fmt_money,
+        "Клиринговая комиссия":      _fmt_money,
+        # ---- ЦЕНЫ ----
+        "Текущая цена":   _fmt_price,
+        "Верхний лимит":  _fmt_price,
+        "Нижний лимит":   _fmt_price,
+        "Расчетная цена": _fmt_price,
+        "Предыдущая цена": _fmt_price,
+        # ---- ЦЕЛЫЕ ----
+        "Макс. контрактов":  _fmt_int,
+        "Доступных лотов":   _fmt_int,
+        "Открытых позиций":  _fmt_int,
+        "Лот":               _fmt_int,
+        # ---- ШАГ ----
+        "Шаг цены": _fmt_step,
     }, na_rep="—")
 
     st.dataframe(
@@ -379,6 +421,7 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     fit_count = int((view["MaxContracts"] >= 1).sum())
     unique_assets = view["ASSETCODE"].nunique()
     unique_exps = view["LASTTRADEDATE"].nunique()
+    max_valtoday = view["VALTODAY"].max() if not view.empty else 0
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Показано", f"{total_after} из {total_before}")
@@ -386,4 +429,4 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
     c3.metric("Уникальных активов", unique_assets)
     c4.metric("Экспираций", unique_exps)
 
-    st.caption(f"Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"Максимальный VALTODAY: {_fmt_money(max_valtoday)} · Обновлено: {datetime.now().strftime('%H:%M:%S')}")
