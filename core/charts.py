@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-from core.config import FIB_LEVELS
 
 # Цвета разметки (Light theme)
 GREEN  = "#26a69a"
