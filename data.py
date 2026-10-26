@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import json
 import os
 
-# ВАЖНО: Замените на ваш ID таблицы и GID вкладок!
 SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ_ИЗ_ССЫЛКИ"
 GIDS = {
     "API": "0",
@@ -141,12 +140,7 @@ MOEX_IMS_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/ims"
 
 @st.cache_data(ttl=60, show_spinner="Загрузка ГО (IMS)…")
 def fetch_moex_ims() -> pd.DataFrame:
-    """
-    Загружает значения гарантийного обеспечения по уровням риска.
-    Возвращает DataFrame с колонками:
-    SECID, BOARDID, IM_TIME, IM_BUY, IM_SELL, IM_BUY_LRC, IM_SELL_LRC,
-    IM_BUY_MRC, IM_SELL_MRC, IM_BUY_HRC, IM_SELL_HRC, IM_BUY_ERC, IM_SELL_ERC
-    """
+    """Загружает значения ГО по уровням риска (LONG/SHORT, LRC/MRC/HRC/ERC)."""
     params = {"iss.meta": "off", "format": "json"}
     try:
         r = requests.get(MOEX_IMS_URL, params=params, timeout=15)
@@ -157,17 +151,18 @@ def fetch_moex_ims() -> pd.DataFrame:
             return pd.DataFrame()
         df = pd.DataFrame(block["data"], columns=block["columns"])
     except Exception:
-        # fallback: попробуем CSV
         try:
             r = requests.get(MOEX_IMS_URL, params={"iss.meta": "off"}, timeout=15)
             r.raise_for_status()
             from io import StringIO
             df = pd.read_csv(StringIO(r.text), sep="|")
-            # очищаем названия колонок от описаний
             df.columns = [c.split("(")[0].strip() for c in df.columns]
         except Exception as e:
             st.warning(f"Не удалось загрузить данные ГО (IMS): {e}")
             return pd.DataFrame()
+
+    # Нормализация названий колонок в верхний регистр (защита от разнобоя)
+    df.columns = [str(c).upper() for c in df.columns]
 
     numeric_cols = ["IM_BUY", "IM_SELL", "IM_BUY_LRC", "IM_SELL_LRC",
                     "IM_BUY_MRC", "IM_SELL_MRC", "IM_BUY_HRC", "IM_SELL_HRC",
@@ -181,7 +176,7 @@ def fetch_moex_ims() -> pd.DataFrame:
 
 
 # ==========================================
-# 3. ЗАГРУЗКА СВЕЧЕЙ (Исторические данные)
+# 3. ЗАГРУЗКА СВЕЧЕЙ
 # ==========================================
 MOEX_CANDLES_URL = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/{ticker}/candles.json"
 
@@ -238,7 +233,7 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
 
 
 # ==========================================
-# 4. СОХРАНЕНИЕ И ЗАГРУЗКА ТЕХНИЧЕСКОЙ АНАЛИТИКИ (JSON)
+# 4. СОХРАНЕНИЕ / ЗАГРУЗКА АНАЛИТИКИ
 # ==========================================
 CACHE_FILE = "trend_cache.json"
 
@@ -261,7 +256,6 @@ def save_trend_cache(ticker: str, data_dict: dict):
         st.error(f"Не удалось сохранить кэш: {e}")
 
 def build_export_cache() -> dict:
-    """Собирает полный JSON-кэш из текущего st.session_state и файла."""
     cache = load_trend_cache()
 
     if "sb_strategy" in st.session_state:
@@ -278,8 +272,7 @@ def build_export_cache() -> dict:
     cache["_active_tickers"] = st.session_state.get("active_tickers", [])
     cache["_market_state"] = st.session_state.get("market_state", {})
 
-    active_tickers = st.session_state.get("active_tickers", [])
-    for ticker in active_tickers:
+    for ticker in st.session_state.get("active_tickers", []):
         pts_keys = {
             "d1_manual_pts": f"manual_channel_{ticker}_D1",
             "d1_fib_pts":    f"manual_fib_{ticker}_D1",
@@ -288,7 +281,6 @@ def build_export_cache() -> dict:
             "m10_zig_pts":   f"manual_zig_{ticker}_M10",
             "h1_levels":     f"manual_levels_{ticker}_H1",
         }
-
         ticker_data = {}
         for cache_key, skey in pts_keys.items():
             if cache_key == "h1_levels":
