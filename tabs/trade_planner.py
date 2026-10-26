@@ -50,12 +50,72 @@ def detect_trend(df):
             return "Тренд вниз"
     return "Боковик"
 
+def add_extreme_annotations(fig, df, decimals=0):
+    """Находит локальные экстремумы и накладывает на них черные плашки с белым шрифтом."""
+    if len(df) < 5:
+        return
+
+    # Окно 5 баров: проверяем максимум/минимум бара по сравнению с 2 соседями слева и справа
+    window = 5
+    df_copy = df.copy()
+    df_copy['local_high'] = df_copy['High'].rolling(window=window, center=True).max() == df_copy['High']
+    df_copy['local_low'] = df_copy['Low'].rolling(window=window, center=True).min() == df_copy['Low']
+
+    # Берем 10 последних экстремумов, чтобы не засорять график
+    highs = df_copy[df_copy['local_high']].tail(10)
+    lows = df_copy[df_copy['local_low']].tail(10)
+
+    fmt = f",.{decimals}f"
+
+    # 1. Выноски для максимумов (High)
+    for idx, row in highs.iterrows():
+        price_str = f"{row['High']:{fmt}}"
+        fig.add_annotation(
+            x=idx, y=row['High'],
+            text=price_str,
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="black",
+            ax=0, ay=-40, # Смещение плашки вверх
+            bgcolor="black",
+            font=dict(color="white", size=10),
+            bordercolor="black",
+            borderwidth=1,
+            borderpad=3,
+            opacity=0.85,
+            row=1, col=1
+        )
+
+    # 2. Выноски для минимумов (Low)
+    for idx, row in lows.iterrows():
+        price_str = f"{row['Low']:{fmt}}"
+        fig.add_annotation(
+            x=idx, y=row['Low'],
+            text=price_str,
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="black",
+            ax=0, ay=40, # Смещение плашки вниз
+            bgcolor="black",
+            font=dict(color="white", size=10),
+            bordercolor="black",
+            borderwidth=1,
+            borderpad=3,
+            opacity=0.85,
+            row=1, col=1
+        )
+
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False, channel_data=None):
     if df_chart.empty:
         return None
 
     tick_fmt = f",.{decimals}f"
 
+    # Увеличиваем отступы сверху и снизу, чтобы плашки не обрезались
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
@@ -122,33 +182,26 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             idx2 = df_chart.index.get_loc(x2)
             idx3 = df_chart.index.get_loc(x3)
             
-            # Уравнение прямой (Наклон и смещение)
             slope = (y2 - y1) / (idx2 - idx1) if idx2 != idx1 else 0
             intercept = y1 - slope * idx1
             intercept_par = y3 - slope * idx3
             
-            # Вычисляем дату для конца луча (10 баров вправо за пределы графика)
             if len(df_chart) > 1:
                 delta = df_chart.index[-1] - df_chart.index[-2]
                 dt_end = df_chart.index[-1] + delta * 10
             else:
                 dt_end = df_chart.index[-1]
 
-            # Значения Y для конца луча
             y_ray1_end = slope * (len(df_chart) + 10) + intercept
             y_ray2_end = slope * (len(df_chart) + 10) + intercept_par
-            
-            # Значения Y для начала параллельной линии (берем X первой точки)
             y_ray2_start = slope * idx1 + intercept_par
 
-            # Рисуем основную линию тренда (синюю)
             fig.add_trace(go.Scatter(
                 x=[x1, dt_end], y=[y1, y_ray1_end], 
                 mode='lines', name='Линия тренда', 
                 line=dict(color='blue', width=2)
             ), row=1, col=1)
             
-            # Рисуем параллельную линию канала (синюю)
             fig.add_trace(go.Scatter(
                 x=[x1, dt_end], y=[y_ray2_start, y_ray2_end], 
                 mode='lines', name='Граница канала', 
@@ -156,11 +209,15 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             ), row=1, col=1)
             
         except Exception:
-            pass # Если точек нет на графике, просто игнорируем
+            pass
+
+    # --- ПОДСКАЗКИ ДЛЯ ЭКСТРЕМУМОВ (Только для дневного графика) ---
+    if not is_intraday:
+        add_extreme_annotations(fig, df_chart, decimals=decimals)
 
     fig.update_layout(
         title=title, height=700,
-        margin=dict(l=10, r=10, t=40, b=10),
+        margin=dict(l=10, r=10, t=50, b=50), # Увеличены отступы для плашек
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
         hovermode='closest',
