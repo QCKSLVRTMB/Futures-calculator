@@ -73,8 +73,9 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
-        hovermode='closest',     # Подсказка только у бара
-        spikedistance=-1,        # Спайки по всему полю
+        hovermode='closest',
+        hoversubplots="axis", # <-- Синхронизация перекрестия между графиками
+        spikedistance=-1,
     )
 
     rangebreaks = [dict(bounds=["sat", "mon"])]
@@ -87,20 +88,20 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
-    # --- ПЕРЕКРЕСТИЕ ПО X (общее для обоих графиков) ---
+    # Вертикальное перекрестие (рисуется для всех подграфиков)
     fig.update_xaxes(
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
         showspikes=True, 
-        spikemode='across',      # Линия проходит насквозь через все подграфики
+        spikemode='across', 
         spikesnap='cursor',
         spikecolor='gray', 
         spikethickness=1, 
         spikedash='dash',
     )
     
-    # --- ПЕРЕКРЕСТИЕ ПО Y (отдельно для цены и объема) ---
+    # Горизонтальное перекрестие (локальное для каждого графика)
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
         tickformat=tick_fmt,
