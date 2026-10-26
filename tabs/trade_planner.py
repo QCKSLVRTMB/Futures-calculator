@@ -630,34 +630,50 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 pts = st.session_state[pts_key]
                                 new_pts = pts.copy()
                                 
-                                if not new_pts:
-                                    snapped_y = float(bar['High']) if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']) else float(bar['Low'])
+                                # === ПРИОРИТЕТ 1: Повторный клик по тому же бару = ФЛИП ===
+                                if new_pts and new_pts[-1][0] == bar.name:
+                                    last_y = new_pts[-1][1]
+                                    if np.isclose(last_y, bar['High']):
+                                        snapped_y = float(bar['Low'])
+                                    else:
+                                        snapped_y = float(bar['High'])
+                                    new_pts[-1] = (bar.name, snapped_y)
+                                    
+                                # === ПРИОРИТЕТ 2: Первая точка (новый бар) ===
+                                elif not new_pts:
+                                    # Определяем тренд: сравниваем цену кликнутого бара с ценой последнего бара (рынка)
+                                    current_price = df_h1_view.iloc[-1]['Close']
+                                    clicked_bar_mid = (bar['High'] + bar['Low']) / 2
+                                    
+                                    if clicked_bar_mid < current_price:
+                                        # Цена выросла от кликнутого бара до текущего → тренд вверх → Low
+                                        snapped_y = float(bar['Low'])
+                                    else:
+                                        # Цена упала → тренд вниз → High
+                                        snapped_y = float(bar['High'])
+                                        
                                     new_pts.append((bar.name, snapped_y))
+                                    
+                                # === ПРИОРИТЕТ 3: Вторая точка (новый бар) ===
                                 elif len(new_pts) == 1:
                                     if clicked_y > new_pts[0][1]:
                                         snapped_y = float(bar['High'])
                                     else:
                                         snapped_y = float(bar['Low'])
                                     new_pts.append((bar.name, snapped_y))
+                                    
+                                # === ПРИОРИТЕТ 4: Третья+ точка (новый бар) - чередуем ===
                                 else:
                                     last_time, last_y = new_pts[-1]
+                                    last_bar = df_h1_view.loc[last_time]
+                                    is_last_high = np.isclose(last_y, last_bar['High'])
                                     
-                                    if last_time == bar.name:
-                                        if np.isclose(last_y, bar['High']):
-                                            snapped_y = float(bar['Low'])
-                                        else:
-                                            snapped_y = float(bar['High'])
-                                        new_pts[-1] = (bar.name, snapped_y)
+                                    if is_last_high:
+                                        snapped_y = float(bar['Low'])
                                     else:
-                                        last_bar = df_h1_view.loc[last_time]
-                                        is_last_high = np.isclose(last_y, last_bar['High'])
+                                        snapped_y = float(bar['High'])
                                         
-                                        if is_last_high:
-                                            snapped_y = float(bar['Low'])
-                                        else:
-                                            snapped_y = float(bar['High'])
-                                            
-                                        new_pts.append((bar.name, snapped_y))
+                                    new_pts.append((bar.name, snapped_y))
 
                                 if new_pts != pts:
                                     st.session_state[undo_key].append(pts.copy())
