@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 import time
 
 from data import vlookup, to_float, get_margin, fetch_moex_candles, load_trend_cache, save_trend_cache
-from rules import lookup
 
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
@@ -26,89 +25,6 @@ def check_zigzag_pattern(a, b, c, d, direction):
         if a > b and b < c and c > d and b < d and a > c:
             return True, "Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
-
-def detect_trend(df):
-    if len(df) < 20:
-        return "Боковик"
-    
-    min_idx = df['Low'].idxmin()
-    max_idx = df['High'].idxmax()
-    current_price = df['Close'].iloc[-1]
-    
-    min_pos = df.index.get_loc(min_idx)
-    max_pos = df.index.get_loc(max_idx)
-    
-    if min_pos < max_pos and current_price > df['Low'].iloc[-5:].mean():
-        return "Тренд вверх"
-    if max_pos < min_pos and current_price < df['High'].iloc[-5:].mean():
-        return "Тренд вниз"
-        
-    sma20 = df['Close'].rolling(20).mean().iloc[-1]
-    sma50 = df['Close'].rolling(50).mean().iloc[-1]
-    if pd.notna(sma20) and pd.notna(sma50):
-        if sma20 > sma50:
-            return "Тренд вверх"
-        elif sma20 < sma50:
-            return "Тренд вниз"
-    return "Боковик"
-
-def get_sperandeo_geometry(df, trend_direction):
-    if len(df) < 20: 
-        return None, None, None, None, []
-    
-    if trend_direction == "Тренд вниз":
-        p1_idx = df['High'].idxmax()
-        p1_price = float(df.loc[p1_idx, 'High'])
-        
-        df_after_p1 = df.loc[p1_idx:]
-        if len(df_after_p1) < 5: return p1_price, None, None, None, []
-        
-        p2_idx = df_after_p1['Low'].idxmin()
-        p2_price = float(df.loc[p2_idx, 'Low'])
-        
-        df_after_p2 = df.loc[p2_idx:]
-        if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
-        
-        p3_idx = df_after_p2['High'].idxmax()
-        p3_price = float(df.loc[p3_idx, 'High'])
-        
-        df_after_p3 = df.loc[p3_idx:]
-        is_breakout = len(df_after_p3) > 0 and df_after_p3['Low'].min() < p2_price
-        
-        if is_breakout:
-            channel = {'p1': (p1_idx, p1_price), 'p2': (p2_idx, p2_price), 'p3': (p3_idx, p3_price)}
-            ann = [(p1_idx, 'high', p1_price), (p2_idx, 'low', p2_price), (p3_idx, 'high', p3_price)]
-            return p1_price, p2_price, p3_price, channel, ann
-        
-        return p1_price, p2_price, p3_price, None, []
-        
-    elif trend_direction == "Тренд вверх":
-        p1_idx = df['Low'].idxmin()
-        p1_price = float(df.loc[p1_idx, 'Low'])
-        
-        df_after_p1 = df.loc[p1_idx:]
-        if len(df_after_p1) < 5: return p1_price, None, None, None, []
-        
-        p2_idx = df_after_p1['High'].idxmax()
-        p2_price = float(df.loc[p2_idx, 'High'])
-        
-        df_after_p2 = df.loc[p2_idx:]
-        if len(df_after_p2) < 5: return p1_price, p2_price, None, None, []
-        
-        p3_idx = df_after_p2['Low'].idxmin()
-        p3_price = float(df.loc[p3_idx, 'Low'])
-        
-        df_after_p3 = df.loc[p3_idx:]
-        is_breakout = len(df_after_p3) > 0 and df_after_p3['High'].max() > p2_price
-        
-        if is_breakout:
-            channel = {'p1': (p1_idx, p1_price), 'p2': (p3_idx, p3_price), 'p3': (p2_idx, p2_price)}
-            ann = [(p1_idx, 'low', p1_price), (p2_idx, 'high', p2_price), (p3_idx, 'low', p3_price)]
-            return p1_price, p2_price, p3_price, channel, ann
-            
-        return p1_price, p2_price, p3_price, None, []
-        
-    return None, None, None, None, []
 
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
@@ -191,7 +107,7 @@ def analyze_manual_zigzag(pts, df):
             
     return breakouts
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False, is_d1=False, ticker=""):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None):
     if df_chart.empty:
         return None, []
 
@@ -209,6 +125,45 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         name='Рынок'
     ), row=1, col=1)
 
+    # Канал D1 (по 3 точкам)
+    if is_d1 and d1_pts and len(d1_pts) == 3:
+        t1, p1 = d1_pts[0]
+        t2, p2 = d1_pts[1]
+        t3, p3 = d1_pts[2]
+        
+        x1_ts = pd.to_datetime(t1)
+        x2_ts = pd.to_datetime(t2)
+        x3_ts = pd.to_datetime(t3)
+        
+        time1 = x1_ts.timestamp()
+        time2 = x2_ts.timestamp()
+        time3 = x3_ts.timestamp()
+        
+        dt_12 = time2 - time1 if time2 != time1 else 1
+        slope_time = (p2 - p1) / dt_12
+        
+        dt_end = df_chart.index[-1] + pd.Timedelta(days=10)
+        time_end = dt_end.timestamp()
+        
+        y_ray1_end = slope_time * (time_end - time1) + p1
+        y_ray2_end = slope_time * (time_end - time3) + p3
+
+        fig.add_shape(
+            type="line", x0=x1_ts, y0=p1, x1=dt_end, y1=y_ray1_end,
+            line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
+        )
+        fig.add_shape(
+            type="line", x0=x3_ts, y0=p3, x1=dt_end, y1=y_ray2_end,
+            line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
+        )
+        
+        fig.add_trace(go.Scatter(
+            x=[t1, t2, t3], y=[p1, p2, p3],
+            mode='markers', marker=dict(color='blue', size=10),
+            name='Точки канала D1', showlegend=False
+        ), row=1, col=1)
+
+    # Зигзаг ABCD (если задан)
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
         n = len(df_chart)
         step = max(1, n // 3)
@@ -226,6 +181,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг ABCD'
         ), row=1, col=1)
 
+    # Ручной зигзаг H1
     manual_points_key = f"manual_zigzag_{ticker}_H1"
     manual_pts = []
     if is_h1 and manual_points_key in st.session_state and st.session_state[manual_points_key]:
@@ -252,7 +208,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             line_color_breakout = "#0d6efd"
             line_color_pullback = "#fd7e14"
             
-            # === ПРОБОЙ (Синий) ===
+            # Пробой
             breakout_text = (
                 f"Δ: {brk['delta']:.{decimals}f}<br>"
                 f"Бар: {brk['bars']}<br>"
@@ -317,7 +273,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 row=1, col=1
             )
 
-            # === ОТКАТ (Оранжевый) ===
+            # Откат
             pullback_text = (
                 f"Δ: {brk['retr_delta']:.{decimals}f}<br>"
                 f"Бар: {brk['retr_bars']}<br>"
@@ -361,6 +317,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 row=1, col=1
             )
 
+    # Объемы
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
@@ -379,7 +336,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                             prev_10s.append(volumes[j])
                             if len(prev_10s) == 2:
                                 break
-                    
                     if len(prev_10s) == 2:
                         if volumes[i] > prev_10s[0] and volumes[i] > prev_10s[1]:
                             colors[i] = 'black'
@@ -402,80 +358,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
-    if trend_text:
-        if trend_text == "Тренд вверх":
-            bg_color, font_color = "#198754", "white"
-        elif trend_text == "Тренд вниз":
-            bg_color, font_color = "#dc3545", "white"
-        else:
-            bg_color, font_color = "#e2e3e5", "black"
-
-        fig.add_annotation(
-            text=trend_text, xref="paper", yref="paper",
-            x=0.99, y=0.99, xanchor="right", yanchor="top",
-            showarrow=False,
-            font=dict(size=14, color=font_color, weight="bold"),
-            bgcolor=bg_color, bordercolor="black", borderwidth=1,
-            borderpad=6, opacity=0.9
-        )
-
-    if annotations_data:
-        fmt = f".{decimals}f"
-        for idx, typ, val in annotations_data:
-            price_str = f"{val:{fmt}}"
-            if typ == 'high':
-                fig.add_annotation(
-                    x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
-                    ax=0, ay=-40, bgcolor="black", font=dict(color="white", size=10),
-                    bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
-                )
-            else:
-                fig.add_annotation(
-                    x=idx, y=val, text=price_str, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="black",
-                    ax=0, ay=40, bgcolor="black", font=dict(color="white", size=10),
-                    bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
-                )
-
-    if channel_data:
-        try:
-            x1, y1 = channel_data['p1']
-            x2, y2 = channel_data['p2']
-            x3, y3 = channel_data['p3']
-            
-            x1_ts = pd.to_datetime(x1)
-            x2_ts = pd.to_datetime(x2)
-            x3_ts = pd.to_datetime(x3)
-            
-            time1 = x1_ts.timestamp()
-            time2 = x2_ts.timestamp()
-            time3 = x3_ts.timestamp()
-            
-            dt_12 = time2 - time1 if time2 != time1 else 1
-            slope_time = (y2 - y1) / dt_12
-            
-            if is_intraday:
-                time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
-            else:
-                time_buffer = pd.Timedelta(days=10)
-                
-            dt_end = df_chart.index[-1] + time_buffer
-            
-            y_ray1_end = slope_time * (dt_end.timestamp() - time1) + y1
-            y_ray2_end = slope_time * (dt_end.timestamp() - time3) + y3
-
-            fig.add_shape(
-                type="line", x0=x1_ts, y0=y1, x1=dt_end, y1=y_ray1_end,
-                line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
-            )
-            
-            fig.add_shape(
-                type="line", x0=x3_ts, y0=y3, x1=dt_end, y1=y_ray2_end,
-                line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
-            )
-            
-        except Exception as e:
-            st.error(f"Ошибка отрисовки канала: {e}")
-
     fig.update_layout(
         title=title, height=700,
         margin=dict(l=10, r=10, t=50, b=50),
@@ -493,7 +375,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
         else:
             time_buffer = pd.Timedelta(days=10)
-            
         x_range = [df_chart.index[0] - pd.Timedelta(hours=4), df_chart.index[-1] + time_buffer]
     else:
         x_range = None
@@ -551,111 +432,49 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
-    # --- Направление торговли ---
     direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
 
-    # --- АНАЛИЗ D1 ---
-    df_d1_full = fetch_moex_candles(ticker, interval=24, days_back=250)
-    
-    if not df_d1_full.empty:
-        df_d1_view = df_d1_full.tail(150).copy()
-        trend_d1 = detect_trend(df_d1_view)
-        
-        p1_auto, p2_auto, p3_auto, auto_channel, auto_ann = get_sperandeo_geometry(df_d1_view, trend_d1)
-    else:
-        trend_d1 = "Боковик"
-        p1_auto, p2_auto, p3_auto = None, None, None
-        auto_channel, auto_ann = None, []
-
-    # --- ЗАГРУЗКА КЭША ИЗ JSON ---
     cache = load_trend_cache()
     ticker_cache = cache.get(ticker, {})
 
-    init_p1 = ticker_cache.get("man_p1", p1_auto)
-    init_p2 = ticker_cache.get("man_p2", p2_auto)
-    init_p3 = ticker_cache.get("man_p3", p3_auto)
-
-    init_a = ticker_cache.get("p_a")
-    init_b = ticker_cache.get("p_b")
-    init_c = ticker_cache.get("p_c")
-    init_d = ticker_cache.get("p_d")
-
-    # Инициализация точек H1 из кэша
-    pts_key = f"manual_zigzag_{ticker}_H1"
-    undo_key = f"undo_{ticker}_H1"
-    redo_key = f"redo_{ticker}_H1"
-    debounce_key = f"debounce_{ticker}_H1"
+    # Инициализация D1 точек
+    d1_pts_key = f"manual_channel_{ticker}_D1"
+    d1_undo_key = f"undo_d1_{ticker}"
+    d1_redo_key = f"redo_d1_{ticker}"
+    d1_debounce_key = f"debounce_d1_{ticker}"
     
-    if pts_key not in st.session_state:
+    if d1_pts_key not in st.session_state:
+        cached_d1_pts = ticker_cache.get("d1_manual_pts", [])
+        st.session_state[d1_pts_key] = [(pd.to_datetime(t), float(p)) for t, p in cached_d1_pts]
+    if d1_undo_key not in st.session_state:
+        st.session_state[d1_undo_key] = []
+    if d1_redo_key not in st.session_state:
+        st.session_state[d1_redo_key] = []
+    if d1_debounce_key not in st.session_state:
+        st.session_state[d1_debounce_key] = 0.0
+
+    # Инициализация H1 точек
+    h1_pts_key = f"manual_zigzag_{ticker}_H1"
+    h1_undo_key = f"undo_h1_{ticker}"
+    h1_redo_key = f"redo_h1_{ticker}"
+    h1_debounce_key = f"debounce_h1_{ticker}"
+    
+    if h1_pts_key not in st.session_state:
         cached_h1_pts = ticker_cache.get("h1_manual_pts", [])
-        st.session_state[pts_key] = [(pd.to_datetime(t), float(p)) for t, p in cached_h1_pts]
-    if undo_key not in st.session_state:
-        st.session_state[undo_key] = []
-    if redo_key not in st.session_state:
-        st.session_state[redo_key] = []
-    if debounce_key not in st.session_state:
-        st.session_state[debounce_key] = 0.0
+        st.session_state[h1_pts_key] = [(pd.to_datetime(t), float(p)) for t, p in cached_h1_pts]
+    if h1_undo_key not in st.session_state:
+        st.session_state[h1_undo_key] = []
+    if h1_redo_key not in st.session_state:
+        st.session_state[h1_redo_key] = []
+    if h1_debounce_key not in st.session_state:
+        st.session_state[h1_debounce_key] = 0.0
 
-    # --- СПОЙЛЕР: ТЕХНИЧЕСКАЯ АНАЛИТИКА ---
     with st.expander("Техническая аналитика графика", expanded=False):
-        st.markdown(f"**Тренд (D1):** {trend_d1}")
-        
-        c1, c2, c3 = st.columns(3)
-        man_p1 = c1.number_input("Точка 1", value=float(init_p1) if init_p1 is not None else None, step=100.0, format="%.2f", key=key("man_p1"))
-        man_p2 = c2.number_input("Точка 2", value=float(init_p2) if init_p2 is not None else None, step=100.0, format="%.2f", key=key("man_p2"))
-        man_p3 = c3.number_input("Точка 3", value=float(init_p3) if init_p3 is not None else None, step=100.0, format="%.2f", key=key("man_p3"))
-        
-        st.markdown("---")
-        
-        st.markdown("**Зигзаг тенденции**")
         c1, c2, c3, c4 = st.columns(4)
-        p_a = c1.number_input("Точка A", value=float(init_a) if init_a is not None else None, step=100.0, format="%.2f", key=key("p_a"))
-        p_b = c2.number_input("Точка B", value=float(init_b) if init_b is not None else None, step=100.0, format="%.2f", key=key("p_b"))
-        p_c = c3.number_input("Точка C", value=float(init_c) if init_c is not None else None, step=100.0, format="%.2f", key=key("p_c"))
-        p_d = c4.number_input("Точка D", value=float(init_d) if init_d is not None else None, step=100.0, format="%.2f", key=key("p_d"))
-
-    # Логика канала
-    final_channel = auto_channel
-    final_annotations = auto_ann
-    
-    if man_p1 is not None and man_p2 is not None and man_p3 is not None:
-        def find_bar(price, start_time, is_high):
-            sub = df_d1_view.loc[start_time:]
-            if sub.empty: return None
-            if is_high:
-                idx = (sub['High'] - price).abs().idxmin()
-                return (idx, float(sub.loc[idx, 'High']))
-            else:
-                idx = (sub['Low'] - price).abs().idxmin()
-                return (idx, float(sub.loc[idx, 'Low']))
-                
-        if trend_d1 == "Тренд вниз":
-            b1 = find_bar(man_p1, df_d1_view.index[0], True)
-            b2 = find_bar(man_p2, b1[0], False) if b1 else None
-            b3 = find_bar(man_p3, b2[0], True) if b2 else None
-            
-            if b1 and b2 and b3:
-                if df_d1_view.loc[b3[0]:, 'Low'].min() < b2[1]:
-                    final_channel = {'p1': b1, 'p2': b2, 'p3': b3}
-                    final_annotations = [(b1[0], 'high', b1[1]), (b2[0], 'low', b2[1]), (b3[0], 'high', b3[1])]
-                else:
-                    st.warning("Условие пробоя Точки 2 (поддержки) не выполнено. Канал не построен.")
-                    final_channel = None
-                    final_annotations = []
-                    
-        elif trend_d1 == "Тренд вверх":
-            b1 = find_bar(man_p1, df_d1_view.index[0], False)
-            b2 = find_bar(man_p2, b1[0], True) if b1 else None
-            b3 = find_bar(man_p3, b2[0], False) if b2 else None
-            
-            if b1 and b2 and b3:
-                if df_d1_view.loc[b3[0]:, 'High'].max() > b2[1]:
-                    final_channel = {'p1': b1, 'p2': b3, 'p3': b2}
-                    final_annotations = [(b1[0], 'low', b1[1]), (b2[0], 'high', b2[1]), (b3[0], 'low', b3[1])]
-                else:
-                    st.warning("Условие пробоя Точки 2 (сопротивления) не выполнено. Канал не построен.")
-                    final_channel = None
-                    final_annotations = []
+        p_a = c1.number_input("Точка A", value=float(ticker_cache.get("p_a")) if ticker_cache.get("p_a") is not None else None, step=100.0, format="%.2f", key=key("p_a"))
+        p_b = c2.number_input("Точка B", value=float(ticker_cache.get("p_b")) if ticker_cache.get("p_b") is not None else None, step=100.0, format="%.2f", key=key("p_b"))
+        p_c = c3.number_input("Точка C", value=float(ticker_cache.get("p_c")) if ticker_cache.get("p_c") is not None else None, step=100.0, format="%.2f", key=key("p_c"))
+        p_d = c4.number_input("Точка D", value=float(ticker_cache.get("p_d")) if ticker_cache.get("p_d") is not None else None, step=100.0, format="%.2f", key=key("p_d"))
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
@@ -685,57 +504,132 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 is_h1 = (tf_name == "H1")
                 is_m10 = (tf_name == "M10")
                 
+                d1_pts = st.session_state.get(d1_pts_key, [])
+                
                 fig, breakouts = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
-                    trend_text=trend_d1 if is_d1 else "",
-                    channel_data=final_channel,
-                    annotations_data=final_annotations,
                     is_h1=is_h1,
                     is_m10=is_m10,
                     is_d1=is_d1,
-                    ticker=ticker
+                    ticker=ticker,
+                    d1_pts=d1_pts
                 )
                 
                 if fig:
-                    if is_h1:
+                    if is_d1:
                         col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
                         with col1:
-                            if st.button("Отменить", key=f"undo_btn_{ticker}"):
-                                if len(st.session_state[undo_key]) > 0:
-                                    prev_state = st.session_state[undo_key].pop()
-                                    st.session_state[redo_key].append(st.session_state[pts_key].copy())
-                                    st.session_state[pts_key] = prev_state
-                                    st.session_state[debounce_key] = 0.0
+                            if st.button("Отменить (D1)", key=f"undo_d1_btn_{ticker}"):
+                                if len(st.session_state[d1_undo_key]) > 0:
+                                    prev_state = st.session_state[d1_undo_key].pop()
+                                    st.session_state[d1_redo_key].append(st.session_state[d1_pts_key].copy())
+                                    st.session_state[d1_pts_key] = prev_state
+                                    st.session_state[d1_debounce_key] = 0.0
                                     st.rerun()
                         with col2:
-                            if st.button("Повторить", key=f"redo_btn_{ticker}"):
-                                if len(st.session_state[redo_key]) > 0:
-                                    next_state = st.session_state[redo_key].pop()
-                                    st.session_state[undo_key].append(st.session_state[pts_key].copy())
-                                    st.session_state[pts_key] = next_state
-                                    st.session_state[debounce_key] = 0.0
+                            if st.button("Повторить (D1)", key=f"redo_d1_btn_{ticker}"):
+                                if len(st.session_state[d1_redo_key]) > 0:
+                                    next_state = st.session_state[d1_redo_key].pop()
+                                    st.session_state[d1_undo_key].append(st.session_state[d1_pts_key].copy())
+                                    st.session_state[d1_pts_key] = next_state
+                                    st.session_state[d1_debounce_key] = 0.0
                                     st.rerun()
                         with col3:
-                            if st.button("Очистить", key=f"clear_{ticker}_H1"):
-                                st.session_state[undo_key].append(st.session_state[pts_key].copy())
-                                st.session_state[redo_key] = []
-                                st.session_state[pts_key] = []
-                                st.session_state[debounce_key] = 0.0
+                            if st.button("Очистить (D1)", key=f"clear_d1_{ticker}"):
+                                st.session_state[d1_undo_key].append(st.session_state[d1_pts_key].copy())
+                                st.session_state[d1_redo_key] = []
+                                st.session_state[d1_pts_key] = []
+                                st.session_state[d1_debounce_key] = 0.0
                                 st.rerun()
                         with col4:
-                            draw_mode = st.toggle("Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
+                            draw_mode_d1 = st.toggle("Режим рисования канала (D1)", value=True, key=f"draw_mode_d1_{ticker}")
 
-                        if draw_mode:
+                        if draw_mode_d1:
+                            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_d1_{ticker}")
+                            
+                            now = time.time()
+                            last_debounce = st.session_state.get(d1_debounce_key, 0.0)
+                            
+                            if event and event["selection"]["points"] and (now - last_debounce > 0.5):
+                                st.session_state[d1_debounce_key] = now
+                                
+                                pt = event["selection"]["points"][0]
+                                clicked_time = pd.to_datetime(pt["x"])
+                                clicked_y = pt["y"]
+                                
+                                df_view = df_candles.tail(150).copy()
+                                idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
+                                bar = df_view.iloc[idx]
+                                
+                                pts = st.session_state[d1_pts_key]
+                                new_pts = pts.copy()
+                                
+                                if len(new_pts) < 3:
+                                    if not new_pts:
+                                        snapped_y = float(bar['High']) if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']) else float(bar['Low'])
+                                        new_pts.append((bar.name, snapped_y))
+                                    elif len(new_pts) == 1:
+                                        if clicked_y > new_pts[0][1]:
+                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
+                                            snapped_y = float(bar['Low'])
+                                        else:
+                                            new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'High']))
+                                            snapped_y = float(bar['High'])
+                                        new_pts.append((bar.name, snapped_y))
+                                    elif len(new_pts) == 2:
+                                        if new_pts[1][1] > new_pts[0][1]:
+                                            snapped_y = float(bar['High'])
+                                        else:
+                                            snapped_y = float(bar['Low'])
+                                        new_pts.append((bar.name, snapped_y))
+                                    
+                                    if new_pts != pts:
+                                        st.session_state[d1_undo_key].append(pts.copy())
+                                        st.session_state[d1_redo_key] = []
+                                        st.session_state[d1_pts_key] = new_pts
+                                        st.rerun()
+                        else:
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                    elif is_h1:
+                        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+                        with col1:
+                            if st.button("Отменить (H1)", key=f"undo_btn_{ticker}"):
+                                if len(st.session_state[h1_undo_key]) > 0:
+                                    prev_state = st.session_state[h1_undo_key].pop()
+                                    st.session_state[h1_redo_key].append(st.session_state[h1_pts_key].copy())
+                                    st.session_state[h1_pts_key] = prev_state
+                                    st.session_state[h1_debounce_key] = 0.0
+                                    st.rerun()
+                        with col2:
+                            if st.button("Повторить (H1)", key=f"redo_btn_{ticker}"):
+                                if len(st.session_state[h1_redo_key]) > 0:
+                                    next_state = st.session_state[h1_redo_key].pop()
+                                    st.session_state[h1_undo_key].append(st.session_state[h1_pts_key].copy())
+                                    st.session_state[h1_pts_key] = next_state
+                                    st.session_state[h1_debounce_key] = 0.0
+                                    st.rerun()
+                        with col3:
+                            if st.button("Очистить (H1)", key=f"clear_{ticker}_H1"):
+                                st.session_state[h1_undo_key].append(st.session_state[h1_pts_key].copy())
+                                st.session_state[h1_redo_key] = []
+                                st.session_state[h1_pts_key] = []
+                                st.session_state[h1_debounce_key] = 0.0
+                                st.rerun()
+                        with col4:
+                            draw_mode_h1 = st.toggle("Режим рисования зигзага (H1)", value=True, key=f"draw_mode_{ticker}_H1")
+
+                        if draw_mode_h1:
                             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
                             
                             now = time.time()
-                            last_debounce = st.session_state.get(debounce_key, 0.0)
+                            last_debounce = st.session_state.get(h1_debounce_key, 0.0)
                             
                             if event and event["selection"]["points"] and (now - last_debounce > 0.5):
-                                st.session_state[debounce_key] = now
+                                st.session_state[h1_debounce_key] = now
                                 
                                 pt = event["selection"]["points"][0]
                                 clicked_time = pd.to_datetime(pt["x"])
@@ -745,7 +639,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
                                 bar = df_h1_view.iloc[idx]
                                 
-                                pts = st.session_state[pts_key]
+                                pts = st.session_state[h1_pts_key]
                                 new_pts = pts.copy()
                                 
                                 if new_pts and new_pts[-1][0] == bar.name:
@@ -755,41 +649,34 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                     else:
                                         snapped_y = float(bar['High'])
                                     new_pts[-1] = (bar.name, snapped_y)
-                                    
                                 elif not new_pts:
                                     current_price = df_h1_view.iloc[-1]['Close']
                                     clicked_bar_mid = (bar['High'] + bar['Low']) / 2
-                                    
                                     if clicked_bar_mid < current_price:
                                         snapped_y = float(bar['Low'])
                                     else:
                                         snapped_y = float(bar['High'])
-                                        
                                     new_pts.append((bar.name, snapped_y))
-                                    
                                 elif len(new_pts) == 1:
                                     if clicked_y > new_pts[0][1]:
                                         snapped_y = float(bar['High'])
                                     else:
                                         snapped_y = float(bar['Low'])
                                     new_pts.append((bar.name, snapped_y))
-                                    
                                 else:
                                     last_time, last_y = new_pts[-1]
                                     last_bar = df_h1_view.loc[last_time]
                                     is_last_high = np.isclose(last_y, last_bar['High'])
-                                    
                                     if is_last_high:
                                         snapped_y = float(bar['Low'])
                                     else:
                                         snapped_y = float(bar['High'])
-                                        
                                     new_pts.append((bar.name, snapped_y))
 
                                 if new_pts != pts:
-                                    st.session_state[undo_key].append(pts.copy())
-                                    st.session_state[redo_key] = []
-                                    st.session_state[pts_key] = new_pts
+                                    st.session_state[h1_undo_key].append(pts.copy())
+                                    st.session_state[h1_redo_key] = []
+                                    st.session_state[h1_pts_key] = new_pts
                                     st.rerun()
                         else:
                             st.plotly_chart(fig, use_container_width=True)
@@ -829,13 +716,17 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
-    current_pts = st.session_state.get(pts_key, [])
-    serializable_pts = [(str(t), float(p)) for t, p in current_pts]
+    # Сохранение в кэш
+    current_d1_pts = st.session_state.get(d1_pts_key, [])
+    serializable_d1_pts = [(str(t), float(p)) for t, p in current_d1_pts]
+    
+    current_h1_pts = st.session_state.get(h1_pts_key, [])
+    serializable_h1_pts = [(str(t), float(p)) for t, p in current_h1_pts]
     
     final_state = {
-        "man_p1": man_p1, "man_p2": man_p2, "man_p3": man_p3,
         "p_a": p_a, "p_b": p_b, "p_c": p_c, "p_d": p_d,
-        "h1_manual_pts": serializable_pts
+        "d1_manual_pts": serializable_d1_pts,
+        "h1_manual_pts": serializable_h1_pts
     }
     clean_state = {k: v for k, v in final_state.items() if v is not None}
     
