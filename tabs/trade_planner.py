@@ -50,45 +50,6 @@ def detect_trend(df):
             return "Тренд вниз"
     return "Боковик"
 
-def get_sperandeo_defaults(df, trend):
-    """Автоматически находит последние точки для канала Сперандео."""
-    if df.empty or trend == "Боковик" or len(df) < 20:
-        return 0.0, 0.0, 0.0
-        
-    window = 5
-    df_temp = df.copy()
-    
-    if trend == "Тренд вверх":
-        df_temp['local_min'] = df_temp['Low'].rolling(window=window, center=True).min() == df_temp['Low']
-        min_indices = df_temp[df_temp['local_min']].index
-        if len(min_indices) >= 2:
-            for i in range(len(min_indices)-1, 0, -1):
-                y2 = df_temp.loc[min_indices[i], 'Low']
-                y1 = df_temp.loc[min_indices[i-1], 'Low']
-                if y2 > y1:
-                    idx1 = min_indices[i-1]
-                    idx2 = min_indices[i]
-                    y3 = df_temp.loc[idx1:idx2, 'High'].max()
-                    return float(y1), float(y2), float(y3)
-    else: # Тренд вниз
-        df_temp['local_max'] = df_temp['High'].rolling(window=window, center=True).max() == df_temp['High']
-        max_indices = df_temp[df_temp['local_max']].index
-        if len(max_indices) >= 2:
-            for i in range(len(max_indices)-1, 0, -1):
-                y2 = df_temp.loc[max_indices[i], 'High']
-                y1 = df_temp.loc[max_indices[i-1], 'High']
-                if y2 < y1:
-                    idx1 = max_indices[i-1]
-                    idx2 = max_indices[i]
-                    y3 = df_temp.loc[idx1:idx2, 'Low'].min()
-                    return float(y1), float(y2), float(y3)
-                    
-    # Если не нашли подходящих точек, возвращаем глобальные экстремумы
-    if trend == "Тренд вверх":
-        return float(df['Low'].min()), float(df['Low'].min() * 1.02), float(df['High'].max())
-    else:
-        return float(df['High'].max()), float(df['High'].max() * 0.98), float(df['Low'].min())
-
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False, channel_data=None):
     if df_chart.empty:
         return None
@@ -166,21 +127,36 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             intercept = y1 - slope * idx1
             intercept_par = y3 - slope * idx3
             
-            # Продлеваем линии вправо (на 10 баров дальше последнего)
-            x_end = len(df_chart) + 10
+            # Вычисляем дату для конца луча (10 баров вправо за пределы графика)
             if len(df_chart) > 1:
-                dt_end = df_chart.index[-1] + (x_end - len(df_chart) + 1) * (df_chart.index[-1] - df_chart.index[-2])
+                delta = df_chart.index[-1] - df_chart.index[-2]
+                dt_end = df_chart.index[-1] + delta * 10
             else:
                 dt_end = df_chart.index[-1]
-                
-            x_ray = [x1, dt_end]
-            y_ray1 = [y1, slope * x_end + intercept]
-            y_ray2 = [y3, slope * x_end + intercept_par]
+
+            # Значения Y для конца луча
+            y_ray1_end = slope * (len(df_chart) + 10) + intercept
+            y_ray2_end = slope * (len(df_chart) + 10) + intercept_par
             
-            fig.add_trace(go.Scatter(x=x_ray, y=y_ray1, mode='lines', name='Канал 1', line=dict(color='blue', width=2)), row=1, col=1)
-            fig.add_trace(go.Scatter(x=x_ray, y=y_ray2, mode='lines', name='Канал 2', line=dict(color='blue', width=2)), row=1, col=1)
-        except Exception as e:
-            pass
+            # Значения Y для начала параллельной линии (берем X первой точки)
+            y_ray2_start = slope * idx1 + intercept_par
+
+            # Рисуем основную линию тренда (синюю)
+            fig.add_trace(go.Scatter(
+                x=[x1, dt_end], y=[y1, y_ray1_end], 
+                mode='lines', name='Линия тренда', 
+                line=dict(color='blue', width=2)
+            ), row=1, col=1)
+            
+            # Рисуем параллельную линию канала (синюю)
+            fig.add_trace(go.Scatter(
+                x=[x1, dt_end], y=[y_ray2_start, y_ray2_end], 
+                mode='lines', name='Граница канала', 
+                line=dict(color='blue', width=2)
+            ), row=1, col=1)
+            
+        except Exception:
+            pass # Если точек нет на графике, просто игнорируем
 
     fig.update_layout(
         title=title, height=700,
@@ -268,36 +244,42 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.markdown(f"**Определенный тренд (D1):** {trend_d1}")
         
         if trend_d1 == "Тренд вверх":
-            d1, d2, d3 = get_sperandeo_defaults(df_d1, trend_d1)
             c1, c2, c3 = st.columns(3)
-            y1 = c1.number_input("Минимум 1", value=d1, step=100.0, format="%.2f", key=key("min1"))
-            y2 = c2.number_input("Минимум 2", value=d2, step=100.0, format="%.2f", key=key("min2"))
-            y3 = c3.number_input("Максимум", value=d3, step=100.0, format="%.2f", key=key("max"))
+            y1 = c1.number_input("Минимум 1", value=None, step=100.0, format="%.2f", key=key("min1"))
+            y2 = c2.number_input("Минимум 2", value=None, step=100.0, format="%.2f", key=key("min2"))
+            y3 = c3.number_input("Максимум", value=None, step=100.0, format="%.2f", key=key("max"))
             
-            if y1 < y2:
-                x1 = (df_d1['Low'] - y1).abs().idxmin()
-                x2 = (df_d1['Low'] - y2).abs().idxmin()
-                if x1 > x2: x1, x2 = x2, x1
-                x3 = (df_d1.loc[x1:x2, 'High'] - y3).abs().idxmin()
-                channel_data = (x1, y1, x2, y2, x3, y3)
-            else:
-                st.error("Минимум 1 должен быть меньше Минимума 2")
+            if y1 is not None and y2 is not None and y3 is not None:
+                if y1 < y2:
+                    x1 = (df_d1['Low'] - y1).abs().idxmin()
+                    x2 = (df_d1['Low'] - y2).abs().idxmin()
+                    if x1 > x2: x1, x2 = x2, x1
+                    mask = (df_d1.index >= x1) & (df_d1.index <= x2)
+                    if mask.sum() > 0:
+                        sub_df = df_d1.loc[mask]
+                        x3 = (sub_df['High'] - y3).abs().idxmin()
+                        channel_data = (x1, y1, x2, y2, x3, y3)
+                else:
+                    st.error("Минимум 1 должен быть меньше Минимума 2")
                 
         elif trend_d1 == "Тренд вниз":
-            d1, d2, d3 = get_sperandeo_defaults(df_d1, trend_d1)
             c1, c2, c3 = st.columns(3)
-            y1 = c1.number_input("Максимум 1", value=d1, step=100.0, format="%.2f", key=key("max1"))
-            y2 = c2.number_input("Максимум 2", value=d2, step=100.0, format="%.2f", key=key("max2"))
-            y3 = c3.number_input("Минимум", value=d3, step=100.0, format="%.2f", key=key("min"))
+            y1 = c1.number_input("Максимум 1", value=None, step=100.0, format="%.2f", key=key("max1"))
+            y2 = c2.number_input("Максимум 2", value=None, step=100.0, format="%.2f", key=key("max2"))
+            y3 = c3.number_input("Минимум", value=None, step=100.0, format="%.2f", key=key("min"))
             
-            if y1 > y2:
-                x1 = (df_d1['High'] - y1).abs().idxmin()
-                x2 = (df_d1['High'] - y2).abs().idxmin()
-                if x1 > x2: x1, x2 = x2, x1
-                x3 = (df_d1.loc[x1:x2, 'Low'] - y3).abs().idxmin()
-                channel_data = (x1, y1, x2, y2, x3, y3)
-            else:
-                st.error("Максимум 1 должен быть больше Максимума 2")
+            if y1 is not None and y2 is not None and y3 is not None:
+                if y1 > y2:
+                    x1 = (df_d1['High'] - y1).abs().idxmin()
+                    x2 = (df_d1['High'] - y2).abs().idxmin()
+                    if x1 > x2: x1, x2 = x2, x1
+                    mask = (df_d1.index >= x1) & (df_d1.index <= x2)
+                    if mask.sum() > 0:
+                        sub_df = df_d1.loc[mask]
+                        x3 = (sub_df['Low'] - y3).abs().idxmin()
+                        channel_data = (x1, y1, x2, y2, x3, y3)
+                else:
+                    st.error("Максимум 1 должен быть больше Максимума 2")
         else:
             st.info("Для боковика канал не строится.")
 
