@@ -323,22 +323,24 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         drawn_coords = set()
         
         for brk in breakouts:
+            # Объявляем цвета для линий
+            line_color_breakout = "#0d6efd"
+            line_color_pullback = "#fd7e14"
+            
             # --- Отрисовка Пробоя ---
             verdict = brk['breakout_verdict']
             ratio = brk['breakout_ratio']
             
             if verdict == "strong":
-                breakout_bg = "rgba(13, 110, 253, 0.9)" # Синий
+                breakout_bg = "rgba(13, 110, 253, 0.9)"
             elif verdict == "weak":
-                breakout_bg = "rgba(108, 117, 125, 0.9)" # Серый
+                breakout_bg = "rgba(108, 117, 125, 0.9)"
             elif verdict == "normal":
-                breakout_bg = "rgba(23, 162, 184, 0.9)" # Бирюзовый
+                breakout_bg = "rgba(23, 162, 184, 0.9)"
             else:
-                breakout_bg = "rgba(13, 110, 253, 0.9)" # Базовый
+                breakout_bg = "rgba(13, 110, 253, 0.9)"
 
-            line_color_breakout = "#0d6efd"
             ratio_text = f" (x{ratio:.1f})" if ratio else ""
-            
             verdict_map = {"strong": "СИЛЬНЫЙ", "weak": "СЛАБЫЙ", "normal": "НОРМАЛЬНЫЙ", "base": "БАЗОВЫЙ"}
             v_text = verdict_map.get(verdict, "")
 
