@@ -835,7 +835,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
     # ========== КАЛЬКУЛЯТОР СДЕЛКИ ==========
     st.markdown("---")
     st.markdown("## Калькулятор сделки")
-    direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
+
+    cached_dir = ticker_cache.get("direction", "LONG")
+    dir_idx = 0 if cached_dir == "LONG" else (1 if cached_dir == "SHORT" else 0)
+    direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True,
+                         index=dir_idx, key=key("dir"))
 
     h1_trend_dir = None
     if len(h1_pts) >= 2:
@@ -853,7 +857,18 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
     st.markdown("### Точки входа")
     entries_raw_key = key("entries_raw")
     if entries_raw_key not in st.session_state:
-        st.session_state[entries_raw_key] = pd.DataFrame({"Цена входа": [float(market)], "Контрактов": [1]})
+        cached_entries = ticker_cache.get("entries", [])
+        if cached_entries and isinstance(cached_entries, list):
+            try:
+                df_cached = pd.DataFrame(cached_entries)
+                if "Цена входа" in df_cached.columns and "Контрактов" in df_cached.columns:
+                    st.session_state[entries_raw_key] = df_cached[["Цена входа", "Контрактов"]].copy()
+                else:
+                    st.session_state[entries_raw_key] = pd.DataFrame({"Цена входа": [float(market)], "Контрактов": [1]})
+            except Exception:
+                st.session_state[entries_raw_key] = pd.DataFrame({"Цена входа": [float(market)], "Контрактов": [1]})
+        else:
+            st.session_state[entries_raw_key] = pd.DataFrame({"Цена входа": [float(market)], "Контрактов": [1]})
 
     df_for_editor = st.session_state[entries_raw_key].copy()
     df_for_editor["Цена входа"] = df_for_editor["Цена входа"].fillna(0.0)
@@ -897,13 +912,18 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         leverage = _div(position_value, margin_used)
 
         st.markdown("### Уровни SL и TP")
+        cached_sl = ticker_cache.get("sl_price", None)
+        cached_tp = ticker_cache.get("tp_price", None)
+        sl_default = float(cached_sl) if cached_sl is not None else float(market)
+        tp_default = float(cached_tp) if cached_tp is not None else float(market)
+
         if _is_mobile():
-            sl_price = st.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
-            tp_price = st.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
+            sl_price = st.number_input("SL (Стоп-лосс)", value=sl_default, step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
+            tp_price = st.number_input("TP (Тейк-профит)", value=tp_default, step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
         else:
             col_sl, col_tp = st.columns(2)
-            sl_price = col_sl.number_input("SL (Стоп-лосс)", value=float(market), step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
-            tp_price = col_tp.number_input("TP (Тейк-профит)", value=float(market), step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
+            sl_price = col_sl.number_input("SL (Стоп-лосс)", value=sl_default, step=float(step_price), key=key("sl_price"), format=f"%.{decimals}f")
+            tp_price = col_tp.number_input("TP (Тейк-профит)", value=tp_default, step=float(step_price), key=key("tp_price"), format=f"%.{decimals}f")
 
         comm_entry = calc_commission(avg_entry, multiplier, commission)
         comm_sl = calc_commission(sl_price, multiplier, commission)
@@ -958,6 +978,13 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                 st.warning(f"⚠️ RR ниже нормы (факт 1:{fmt_ru(actual_rr, 2)}, требуется 1:{fmt_ru(rr_ratio, 2)})")
 
     # ========== СОХРАНЕНИЕ В JSON ==========
+    entries_for_save = []
+    if entries_raw_key in st.session_state:
+        try:
+            entries_for_save = st.session_state[entries_raw_key].to_dict("records")
+        except Exception:
+            entries_for_save = []
+
     final_state = {
         "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
         "d1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_fib"], [])],
@@ -965,6 +992,10 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         "h1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_fib"], [])],
         "m10_zig_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["m10_zig"], [])],
         "h1_levels": st.session_state.get(pts_keys["h1_levels"], []),
+        "entries": entries_for_save,
+        "sl_price": st.session_state.get(key("sl_price"), None),
+        "tp_price": st.session_state.get(key("tp_price"), None),
+        "direction": st.session_state.get(key("dir"), None),
     }
     clean_state = {k: v for k, v in final_state.items() if v is not None}
     if clean_state != ticker_cache:
