@@ -217,15 +217,17 @@ def save_trend_cache(ticker: str, data_dict: dict):
 def build_export_cache() -> dict:
     """Собирает полный JSON-кэш из текущего st.session_state и файла."""
     cache = load_trend_cache()
-    
+
     # 1. Обновляем глобальные настройки из бокового меню
     if "sb_strategy" in st.session_state:
         cache["_global"] = {
-            "strategy": st.session_state["sb_strategy"],
-            "deposit": st.session_state["sb_deposit"],
-            "commission": st.session_state["sb_comm"],
-            "margin_type": st.session_state["sb_margin"],
-            "rr_ratio": st.session_state["sb_rr"]
+            "strategy": st.session_state.get("sb_strategy", "Зигзаг тенденции"),
+            "deposit": st.session_state.get("sb_deposit", 75000),
+            "risk_pct": st.session_state.get("sb_risk", 1.0),
+            "commission": st.session_state.get("sb_comm", "Т-Инвестиции"),
+            "margin_type": st.session_state.get("sb_margin", "КСУР"),
+            "rr_ratio": st.session_state.get("sb_rr", 3.0),
+            "mobile_view": st.session_state.get("sb_mobile", False),
         }
 
     # 2. Обновляем данные для всех активных тикеров из session_state
@@ -237,13 +239,18 @@ def build_export_cache() -> dict:
             "h1_tend_pts": f"manual_tend_{ticker}_H1",
             "h1_fib_pts": f"manual_fib_{ticker}_H1",
             "m10_zig_pts": f"manual_zig_{ticker}_M10",
+            "h1_levels": f"manual_levels_{ticker}_H1",
         }
-        
+
         ticker_data = {}
         for cache_key, skey in pts_keys.items():
-            pts = st.session_state.get(skey, [])
-            ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
-            
+            if cache_key == "h1_levels":
+                # h1_levels — список dict'ов, не кортежей
+                ticker_data[cache_key] = st.session_state.get(skey, [])
+            else:
+                pts = st.session_state.get(skey, [])
+                ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
+
         cache[ticker] = ticker_data
 
     return cache
