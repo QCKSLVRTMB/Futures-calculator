@@ -272,12 +272,19 @@ def build_figure(df, *, tf_name, title, decimals, mobile):
     if tf_name != "D1":
         breaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, showgrid=True,
-                     gridcolor="lightgray", row=1, col=1)
-    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, showgrid=True,
-                     gridcolor="lightgray", row=2, col=1)
-    fig.update_yaxes(side="right", tickformat=f".{decimals}f", showgrid=True,
-                     gridcolor="lightgray", row=1, col=1)
+    # === БУФЕР ВРЕМЕНИ ДЛЯ ПРОДЛЕНИЯ ВПРАВО ===
+    if tf_name == "D1":
+        time_buffer = pd.Timedelta(days=10)
+    elif tf_name == "H1":
+        time_buffer = pd.Timedelta(hours=12)
+    else:
+        time_buffer = pd.Timedelta(hours=2)
+
+    x_range = [df.index[0] - pd.Timedelta(hours=4), df.index[-1] + time_buffer]
+
+    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", row=1, col=1)
+    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", row=2, col=1)
+    fig.update_yaxes(side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", row=1, col=1)
     fig.update_yaxes(side="right", showgrid=True, gridcolor="lightgray", row=2, col=1)
 
     fig.update_layout(
