@@ -429,7 +429,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
-    # ИСПРАВЛЕНИЕ СЕТКИ: привязка к 07:00 утра
     if len(df_chart) > 1:
         if is_intraday:
             time_buffer = pd.Timedelta(hours=12) if is_h1 else pd.Timedelta(hours=2)
@@ -663,7 +662,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             clicked_time = pd.to_datetime(pt["x"])
                             clicked_y = pt["y"]
                             
-                            df_view = df_candles.tail(150).copy()
+                            # ИСПРАВЛЕНИЕ: Берем полный датафрейм, а не tail(150)
+                            df_view = df_candles.copy()
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             bar = df_view.iloc[idx]
                             
