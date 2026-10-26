@@ -150,7 +150,7 @@ def analyze_manual_zigzag(pts, df):
                 
     return breakouts
 
-def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_tend_pts=None, h1_fib_pts=None, m10_zig_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None):
+def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_tend_pts=None, h1_fib_pts=None, m10_zig_pts=None, strategy="Зигзаг тенденции", zoom_start_time=None, show_rr=True):
     if df_chart.empty:
         return None, []
 
@@ -281,7 +281,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         ), row=1, col=1)
 
     # 6. RR Zones based on H1 Tendency (Работает на всех ТФ)
-    if h1_tend_pts and len(h1_tend_pts) >= 2:
+    if show_rr and h1_tend_pts and len(h1_tend_pts) >= 2:
         if strategy == "Зигзаг тенденции":
             t_c, p_c = h1_tend_pts[-2]
             t_d, p_d = h1_tend_pts[-1]
@@ -657,7 +657,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             is_h1 = (tf_name == "H1")
             is_m10 = (tf_name == "M10")
 
-            c_tools, c_toggle = st.columns([3, 1])
+            c_tools, c_toggles = st.columns([2, 2])
             
             with c_tools:
                 if is_d1:
@@ -682,9 +682,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     )
                     active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
             
-            with c_toggle:
-                st.write("")
+            with c_toggles:
                 show_tools = st.toggle("Показать графику", value=True, key=key(f"show_tools_{tf_name}"))
+                show_rr = st.toggle("Зоны RR", value=True, key=key(f"show_rr_{tf_name}"))
 
             if active_k and show_tools:
                 max_pts = 3 if active_k == "d1_chan" else (2 if "fib" in active_k else None)
@@ -769,7 +769,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     h1_fib_pts=h1_fib_view,
                     m10_zig_pts=m10_zig_view,
                     strategy=strategy,
-                    zoom_start_time=zoom_start
+                    zoom_start_time=zoom_start,
+                    show_rr=show_rr
                 )
                 
                 if fig:
