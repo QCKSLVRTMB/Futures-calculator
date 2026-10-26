@@ -12,10 +12,8 @@ INTERVALS = {
     "M10": {"interval": 10, "days_back": 5,   "is_intraday": True},
 }
 
-
 def _div(a, b, default=0.0):
     return a / b if b else default
-
 
 def check_zigzag_pattern(a, b, c, d, direction):
     if direction == "LONG":
@@ -27,12 +25,10 @@ def check_zigzag_pattern(a, b, c, d, direction):
             return True, "✅ Структура SHORT соответствует: a>b<c>d (b<d)"
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
-
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0):
     if df_chart.empty:
         return None
 
-    # Формируем формат оси Y (например, ".0f" для целых, ".2f" для копеек)
     tick_fmt = f",.{decimals}f"
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -77,8 +73,8 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         margin=dict(l=10, r=10, t=30, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
-        hovermode='closest',
-        spikedistance=-1,
+        hovermode='closest',     # Подсказка только у бара
+        spikedistance=-1,        # Спайки по всему полю
     )
 
     rangebreaks = [dict(bounds=["sat", "mon"])]
@@ -91,32 +87,40 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
+    # --- ПЕРЕКРЕСТИЕ ПО X (общее для обоих графиков) ---
     fig.update_xaxes(
         showgrid=True, gridcolor='lightgray',
         rangebreaks=rangebreaks,
         range=x_range,
-        showspikes=True, spikemode='across', spikesnap='cursor',
-        spikecolor='gray', spikethickness=1, spikedash='dash',
+        showspikes=True, 
+        spikemode='across',      # Линия проходит насквозь через все подграфики
+        spikesnap='cursor',
+        spikecolor='gray', 
+        spikethickness=1, 
+        spikedash='dash',
     )
+    
+    # --- ПЕРЕКРЕСТИЕ ПО Y (отдельно для цены и объема) ---
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
-        tickformat=tick_fmt, # <-- Применяем формат к оси Y
-        showspikes=True, spikemode='across', spikesnap='cursor',
-        spikecolor='gray', spikethickness=1, spikedash='dash',
+        tickformat=tick_fmt,
+        showspikes=True, 
+        spikemode='across', 
+        spikesnap='cursor',
+        spikecolor='gray', 
+        spikethickness=1, 
+        spikedash='dash',
     )
     return fig
-
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"🎯 Позиция: {ticker}")
 
-    # --- 1. Данные контракта ---
     iss_row = iss_df[iss_df["SECID"] == ticker] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
 
     if not iss_row.empty:
         market = to_float(iss_row.iloc[0].get("LAST", 0)) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
-        # Извлекаем количество знаков после запятой
         decimals = int(to_float(iss_row.iloc[0].get("DECIMALS", 0)))
     else:
         market = 100000.0
@@ -132,7 +136,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
     pv = _div(step_cost, step_price)
 
-    # --- 2. Состояние рынка ---
     market_state = st.session_state.setdefault("market_state", {})
     state = market_state.get(ticker, {"trend": "вверх", "wave": "вверх", "tendency": "вверх"})
     trend, wave, tendency = state["trend"], state["wave"], state["tendency"]
@@ -152,7 +155,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
-    # --- 3. Ввод A-B-C-D ---
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -166,7 +168,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         ok, msg = check_zigzag_pattern(p_a, p_b, p_c, p_d, direction)
         (st.success if ok else st.warning)(msg)
 
-    # --- 4. Графики ---
     st.markdown("#### 📊 Графики рынка (MOEX ISS)")
     chart_tabs = st.tabs(["📅 D1 (Дни)", "🕐 H1 (Часы)", "⏱️ M10 (10 минут)"])
 
@@ -185,7 +186,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
-                # Передаем decimals в функцию отрисовки
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
@@ -200,7 +200,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     if not all_filled:
         return
 
-    # --- 5. Проверки ---
     avg_entry = p_c
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
@@ -218,7 +217,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         st.error("Для SHORT точка D должна быть ниже C.")
         return
 
-    # --- 6. Параметры сделки ---
     st.markdown("#### ⚙️ Параметры сделки")
     p1, p2 = st.columns(2)
     risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
@@ -237,7 +235,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     contracts = st.number_input("Количество контрактов", min_value=1, max_value=max_contracts_by_risk, value=max_contracts_by_risk, key=key("contracts"))
     margin_used = contracts * margin_per_contract
 
-    # --- 7. Итоги ---
     st.markdown("---")
     st.markdown("#### 📈 Итоги расчета")
     profit_rub = abs(tp_price - avg_entry) * pv * contracts
