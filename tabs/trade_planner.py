@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -26,40 +27,128 @@ def check_zigzag_pattern(a, b, c, d, direction):
         return False, "❌ Структура SHORT НЕ соответствует: нужно a>b<c>d (b<d) и a>c"
 
 def detect_trend(df):
-    """Определяет тренд на основе глобальных экстремумов и скользящих средних."""
     if len(df) < 20:
         return "Боковик"
-
-    # 1. Поиск глобальных точек
     min_idx = df['Low'].idxmin()
     max_idx = df['High'].idxmax()
-    
     current_price = df['Close'].iloc[-1]
-    
-    # 2. Логика "от нижнего минимума вправо"
-    # Если минимум был в первой половине графика, а сейчас цена выше
+
     if df.index.get_loc(min_idx) < len(df) * 0.5 and current_price > df['Low'].min() * 1.05:
-        # Проверяем, что последние движения действительно выше минимума
         if current_price > df['High'].iloc[-5:].mean():
             return "Тренд вверх"
 
-    # 3. Логика "от верхнего максимума вправо"
-    # Если максимум был в первой половине, а сейчас цена ниже
     if df.index.get_loc(max_idx) < len(df) * 0.5 and current_price < df['High'].max() * 0.95:
         if current_price < df['Low'].iloc[-5:].mean():
             return "Тренд вниз"
-            
-    # 4. Резервная логика (если экстремумы в конце) — по скользящим средним
+
     sma20 = df['Close'].rolling(20).mean().iloc[-1]
     sma50 = df['Close'].rolling(50).mean().iloc[-1]
-    
     if pd.notna(sma20) and pd.notna(sma50):
         if sma20 > sma50:
             return "Тренд вверх"
         elif sma20 < sma50:
             return "Тренд вниз"
-            
     return "Боковик"
+
+def build_sperandeo_channel(df, trend_direction):
+    """
+    Строит канал по правилам Сперандео.
+    Возвращает два массива x и y для основной линии и параллельной линии канала.
+    """
+    if len(df) < 30 or trend_direction == "Боковик":
+        return None
+
+    # Используем окно для поиска локальных экстремумов (фракталов)
+    window = 5
+    df = df.copy()
+    df['local_min'] = df['Low'].rolling(window=window, center=True).min() == df['Low']
+    df['local_max'] = df['High'].rolling(window=window, center=True).max() == df['High']
+
+    # Индексы локальных экстремумов
+    min_indices = df[df['local_min']].index
+    max_indices = df[df['local_max']].index
+
+    if trend_direction == "Тренд вверх":
+        # Ищем два последних повышающихся минимума
+        valid_mins = []
+        for i in range(1, len(min_indices)):
+            if df.loc[min_indices[i], 'Low'] > df.loc[min_indices[i-1], 'Low']:
+                valid_mins.append((min_indices[i-1], min_indices[i]))
+        
+        if not valid_mins:
+            return None
+        
+        # Берём последнюю найденную пару
+        p1, p2 = valid_mins[-1]
+        y1, y2 = df.loc[p1, 'Low'], df.loc[p2, 'Low']
+        
+        # Находим максимум между этими точками для построения параллельной линии
+        mask = (df.index >= p1) & (df.index <= p2)
+        if mask.sum() == 0:
+            return None
+        peak_idx = df.loc[mask, 'High'].idxmax()
+        peak_y = df.loc[peak_idx, 'High']
+        
+        # Уравнение прямой линии тренда (y = kx + b)
+        x1, x2 = df.index.get_loc(p1), df.index.get_loc(p2)
+        k = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
+        b = y1 - k * x1
+        
+        # Параллельная линия через пик
+        peak_x = df.index.get_loc(peak_idx)
+        b_parallel = peak_y - k * peak_x
+        
+        # Генерируем линии на всём диапазоне графика
+        x_full = np.arange(len(df))
+        y_trend = k * x_full + b
+        y_parallel = k * x_full + b_parallel
+        
+        return {
+            'x': df.index,
+            'y_trend': y_trend,
+            'y_parallel': y_parallel,
+            'color': '#198754'  # Зелёный для восходящего
+        }
+
+    elif trend_direction == "Тренд вниз":
+        # Ищем два последних понижающихся максимума
+        valid_maxs = []
+        for i in range(1, len(max_indices)):
+            if df.loc[max_indices[i], 'High'] < df.loc[max_indices[i-1], 'High']:
+                valid_maxs.append((max_indices[i-1], max_indices[i]))
+        
+        if not valid_maxs:
+            return None
+        
+        p1, p2 = valid_maxs[-1]
+        y1, y2 = df.loc[p1, 'High'], df.loc[p2, 'High']
+        
+        # Находим минимум между этими точками
+        mask = (df.index >= p1) & (df.index <= p2)
+        if mask.sum() == 0:
+            return None
+        trough_idx = df.loc[mask, 'Low'].idxmin()
+        trough_y = df.loc[trough_idx, 'Low']
+        
+        x1, x2 = df.index.get_loc(p1), df.index.get_loc(p2)
+        k = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
+        b = y1 - k * x1
+        
+        trough_x = df.index.get_loc(trough_idx)
+        b_parallel = trough_y - k * trough_x
+        
+        x_full = np.arange(len(df))
+        y_trend = k * x_full + b
+        y_parallel = k * x_full + b_parallel
+        
+        return {
+            'x': df.index,
+            'y_trend': y_trend,
+            'y_parallel': y_parallel,
+            'color': '#dc3545'  # Красный для нисходящего
+        }
+
+    return None
 
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False):
     if df_chart.empty:
@@ -70,14 +159,12 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
-    # Бары OHLC (черные)
     fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
         low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black', name='Рынок'
     ), row=1, col=1)
 
-    # Зигзаг
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
         n = len(df_chart)
         step = max(1, n // 3)
@@ -98,43 +185,64 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
-    # Объем
     if 'Volume' in df_chart.columns:
         colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
-    # --- ДОБАВЛЕНИЕ ПЛАШКИ ТРЕНДА ---
+    # --- ПЛАШКА ТРЕНДА ---
     if show_trend:
         trend_text = detect_trend(df_chart)
         
         if trend_text == "Тренд вверх":
-            bg_color = "#198754" # Зеленый
-            font_color = "white"
+            bg_color, font_color = "#198754", "white"
         elif trend_text == "Тренд вниз":
-            bg_color = "#dc3545" # Красный
-            font_color = "white"
+            bg_color, font_color = "#dc3545", "white"
         else:
-            bg_color = "#e2e3e5" # Серый
-            font_color = "black"
+            bg_color, font_color = "#e2e3e5", "black"
 
         fig.add_annotation(
-            text=trend_text,
-            xref="paper", yref="paper",
-            x=0.99, y=0.99,
-            xanchor="right", yanchor="top",
+            text=trend_text, xref="paper", yref="paper",
+            x=0.99, y=0.99, xanchor="right", yanchor="top",
             showarrow=False,
             font=dict(size=14, color=font_color, weight="bold"),
-            bgcolor=bg_color,
-            bordercolor="black",
-            borderwidth=1,
-            borderpad=6,
-            opacity=0.9
+            bgcolor=bg_color, bordercolor="black", borderwidth=1,
+            borderpad=6, opacity=0.9
         )
+
+        # --- КАНАЛ СПЕРАНДЕО ---
+        channel_data = build_sperandeo_channel(df_chart, trend_text)
+        if channel_data:
+            # Основная линия тренда
+            fig.add_trace(go.Scatter(
+                x=channel_data['x'], y=channel_data['y_trend'],
+                mode='lines', name='Линия тренда (Сперандео)',
+                line=dict(color=channel_data['color'], width=2, dash='dash')
+            ), row=1, col=1)
+            
+            # Параллельная линия канала
+            fig.add_trace(go.Scatter(
+                x=channel_data['x'], y=channel_data['y_parallel'],
+                mode='lines', name='Граница канала',
+                line=dict(color=channel_data['color'], width=2, dash='dot')
+            ), row=1, col=1)
+            
+            # Заливка канала
+            fig.add_trace(go.Scatter(
+                x=channel_data['x'], y=channel_data['y_trend'],
+                mode='lines', line=dict(width=0), showlegend=False,
+                hoverinfo='skip'
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=channel_data['x'], y=channel_data['y_parallel'],
+                mode='lines', line=dict(width=0), showlegend=False,
+                hoverinfo='skip', fill='tonexty',
+                fillcolor=f"rgba({int(channel_data['color'][1:3], 16)}, {int(channel_data['color'][3:5], 16)}, {int(channel_data['color'][5:7], 16)}, 0.1)"
+            ), row=1, col=1)
 
     fig.update_layout(
         title=title, height=700,
-        margin=dict(l=10, r=10, t=40, b=10), # Увеличили верхний отступ, чтобы плашка не наезжала на заголовок
+        margin=dict(l=10, r=10, t=40, b=10),
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis_rangeslider_visible=False, showlegend=False,
         hovermode='closest',
