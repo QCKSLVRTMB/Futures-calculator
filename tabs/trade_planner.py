@@ -173,8 +173,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if df_chart.empty:
         return None
 
-    # --- 1. ОГРАНИЧЕНИЕ КОЛИЧЕСТВА БАРОВ (для толщины) ---
-    # Оставляем только последние 150 баров для читаемости
+    # Оставляем последние 150 баров для читаемости
     df_chart = df_chart.tail(150).copy()
 
     tick_fmt = f",.{decimals}f"
@@ -182,12 +181,12 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
-    # --- 2. ЯПОНСКИЕ СВЕЧИ (Candlestick) ВМЕСТО OHLC ---
-    fig.add_trace(go.Candlestick(
+    # ВОЗВРАЩАЕМ БАРЫ OHLC (увеличенная толщина тиков)
+    fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
         low=df_chart['Low'], close=df_chart['Close'],
-        increasing=dict(line=dict(color='black', width=1), fillcolor='white'), # Белая заливка для роста
-        decreasing=dict(line=dict(color='black', width=1), fillcolor='black'), # Черная заливка для падения
+        increasing_line_color='black', decreasing_line_color='black',
+        increasing_line_width=1.5, decreasing_line_width=1.5, # Толщина тиков
         name='Рынок'
     ), row=1, col=1)
 
@@ -309,7 +308,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
-    # --- 3. АДАПТАЦИЯ ОСИ Y ---
     y_min = df_chart['Low'].min()
     y_max = df_chart['High'].max()
 
