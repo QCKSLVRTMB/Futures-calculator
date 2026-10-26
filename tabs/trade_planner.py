@@ -95,7 +95,7 @@ def analyze_manual_zigzag(pts, df):
             
     return breakouts
 
-def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None):
+def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None, strategy="Зигзаг тенденции"):
     if df_chart.empty:
         return None, []
 
@@ -197,23 +197,29 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     # Ручной зигзаг H1 и Зоны RR
     manual_points_key = f"manual_zigzag_{ticker}_H1"
     manual_pts = []
-    if is_h1 and manual_points_key in st.session_state and st.session_state[manual_points_key]:
+    if (is_h1 or is_m10) and manual_points_key in st.session_state and st.session_state[manual_points_key]:
         manual_pts = st.session_state[manual_points_key]
-        mx = [p[0] for p in manual_pts]
-        my = [p[1] for p in manual_pts]
-        fig.add_trace(go.Scatter(
-            x=mx, y=my,
-            mode='lines+markers',
-            marker=dict(size=8, color='red', symbol='circle'),
-            line=dict(color='red', width=3),
-            name='Ручной зигзаг (H1)'
-        ), row=1, col=1)
+        
+        if is_h1:
+            mx = [p[0] for p in manual_pts]
+            my = [p[1] for p in manual_pts]
+            fig.add_trace(go.Scatter(
+                x=mx, y=my,
+                mode='lines+markers',
+                marker=dict(size=8, color='red', symbol='circle'),
+                line=dict(color='red', width=3),
+                name='Ручной зигзаг (H1)'
+            ), row=1, col=1)
 
-        # Отрисовка зон RR (по последним двум точкам)
+        # Отрисовка зон RR
         if len(manual_pts) >= 2:
-            t_c, p_c = manual_pts[-2]
-            t_d, p_d = manual_pts[-1]
-            
+            if strategy == "Зигзаг тенденции":
+                t_c, p_c = manual_pts[-2]
+                t_d, p_d = manual_pts[-1]
+            else: # Свинг торговля
+                t_c, p_c = manual_pts[0]
+                t_d, p_d = manual_pts[-1]
+
             low = min(p_c, p_d)
             high = max(p_c, p_d)
             diff = high - low
@@ -222,13 +228,12 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 y1_start, y1_end = low, low + diff/3
                 y3_start, y3_end = low + 2*diff/3, high
                 
-                # Определяем цвета (нижняя и верхняя треть)
-                if p_d > p_c: # Восходящая
-                    color_bottom = "rgba(0, 128, 0, 0.2)"  # Зеленый
-                    color_top = "rgba(255, 0, 0, 0.2)"     # Красный
-                else:         # Нисходящая
-                    color_bottom = "rgba(255, 0, 0, 0.2)"  # Красный
-                    color_top = "rgba(0, 128, 0, 0.2)"     # Зеленый
+                if p_d > p_c:
+                    color_bottom = "rgba(0, 128, 0, 0.1)"  # Зеленый
+                    color_top = "rgba(255, 0, 0, 0.1)"     # Красный
+                else:
+                    color_bottom = "rgba(255, 0, 0, 0.1)"  # Красный
+                    color_top = "rgba(0, 128, 0, 0.1)"     # Зеленый
 
                 # Нижняя треть
                 fig.add_shape(
@@ -450,7 +455,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     
     return fig, breakouts
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio, commission):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio, commission, strategy):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
 
@@ -480,7 +485,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     cache = load_trend_cache()
     ticker_cache = cache.get(ticker, {})
 
-    # Инициализация всех точек из кэша
     pts_keys = {
         "d1_chan": f"manual_channel_{ticker}_D1",
         "d1_fib": f"manual_fib_{ticker}_D1",
@@ -500,7 +504,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             cached_pts = ticker_cache.get(cache_keys[k], [])
             st.session_state[skey] = [(pd.to_datetime(t), float(p)) for t, p in cached_pts]
 
-    # Инициализация стеков Undo/Redo
     for k in pts_keys.keys():
         undo_k = f"undo_{k}_{ticker}"
         redo_k = f"redo_{k}_{ticker}"
@@ -509,7 +512,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         if redo_k not in st.session_state: st.session_state[redo_k] = []
         if deb_k not in st.session_state: st.session_state[deb_k] = 0.0
 
-    # Получаем последние 4 точки зигзага H1 для аналитики
     h1_pts = st.session_state.get(pts_keys["h1_zig"], [])
     p_a, p_b, p_c, p_d = None, None, None, None
     if len(h1_pts) >= 4:
@@ -534,7 +536,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
-    # Выбор активного инструмента
     active_tool = st.radio(
         "Выберите инструмент для рисования", 
         ["Нет", "D1: Канал", "D1: Уровень 1/2", "H1: Зигзаг", "H1: Уровень 1/2"],
@@ -617,7 +618,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                     ticker=ticker,
                     d1_pts=d1_pts,
                     d1_fib_pts=d1_fib,
-                    h1_fib_pts=h1_fib
+                    h1_fib_pts=h1_fib,
+                    strategy=strategy
                 )
                 
                 if fig:
