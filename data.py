@@ -197,7 +197,6 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
 CACHE_FILE = "trend_cache.json"
 
 def load_trend_cache() -> dict:
-    """Загружает кэш из JSON-файла."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
@@ -207,7 +206,6 @@ def load_trend_cache() -> dict:
     return {}
 
 def save_trend_cache(ticker: str, data_dict: dict):
-    """Сохраняет данные конкретного тикера в JSON-файл."""
     cache = load_trend_cache()
     cache[ticker] = data_dict
     try:
@@ -216,13 +214,45 @@ def save_trend_cache(ticker: str, data_dict: dict):
     except Exception as e:
         st.error(f"Не удалось сохранить кэш: {e}")
 
-def export_cache_to_string() -> str:
-    """Возвращает весь кэш в виде отформатированной JSON-строки."""
+def build_export_cache() -> dict:
+    """Собирает полный JSON-кэш из текущего st.session_state и файла."""
     cache = load_trend_cache()
+    
+    # 1. Обновляем глобальные настройки из бокового меню
+    if "sb_strategy" in st.session_state:
+        cache["_global"] = {
+            "strategy": st.session_state["sb_strategy"],
+            "deposit": st.session_state["sb_deposit"],
+            "commission": st.session_state["sb_comm"],
+            "margin_type": st.session_state["sb_margin"],
+            "rr_ratio": st.session_state["sb_rr"]
+        }
+
+    # 2. Обновляем данные для всех активных тикеров из session_state
+    active_tickers = st.session_state.get("active_tickers", [])
+    for ticker in active_tickers:
+        pts_keys = {
+            "d1_manual_pts": f"manual_channel_{ticker}_D1",
+            "d1_fib_pts": f"manual_fib_{ticker}_D1",
+            "h1_tend_pts": f"manual_tend_{ticker}_H1",
+            "h1_fib_pts": f"manual_fib_{ticker}_H1",
+            "m10_zig_pts": f"manual_zig_{ticker}_M10",
+        }
+        
+        ticker_data = {}
+        for cache_key, skey in pts_keys.items():
+            pts = st.session_state.get(skey, [])
+            ticker_data[cache_key] = [(str(t), float(p)) for t, p in pts]
+            
+        cache[ticker] = ticker_data
+
+    return cache
+
+def export_cache_to_string() -> str:
+    cache = build_export_cache()
     return json.dumps(cache, ensure_ascii=False, indent=4)
 
 def import_cache_from_string(json_str: str) -> bool:
-    """Импортирует кэш из JSON-строки и сохраняет в файл."""
     try:
         data = json.loads(json_str)
         if not isinstance(data, dict):
