@@ -105,7 +105,7 @@ def analyze_manual_zigzag(pts, df):
             
     return breakouts
 
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None):
+def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, is_m10=False, is_d1=False, ticker="", d1_pts=None, d1_fib_pts=None, h1_fib_pts=None):
     if df_chart.empty:
         return None, []
 
@@ -203,24 +203,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             showarrow=False, xanchor="left", font=dict(color="green", size=10),
             row=1, col=1
         )
-
-    # Зигзаг ABCD (если задан)
-    if all(x is not None for x in [p_a, p_b, p_c, p_d]):
-        n = len(df_chart)
-        step = max(1, n // 3)
-        zigzag_x = [
-            df_chart.index[0],
-            df_chart.index[min(step, n - 1)],
-            df_chart.index[min(step * 2, n - 1)],
-            df_chart.index[-1],
-        ]
-        fig.add_trace(go.Scatter(
-            x=zigzag_x, y=[p_a, p_b, p_c, p_d],
-            mode='lines+markers+text', text=['A', 'B', 'C', 'D'],
-            textposition='top center', textfont=dict(size=14, color='blue'),
-            line=dict(color='blue', width=3), marker=dict(size=8, color='blue'),
-            name='Зигзаг ABCD'
-        ), row=1, col=1)
 
     # Ручной зигзаг H1
     manual_points_key = f"manual_zigzag_{ticker}_H1"
@@ -502,12 +484,28 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         if redo_k not in st.session_state: st.session_state[redo_k] = []
         if deb_k not in st.session_state: st.session_state[deb_k] = 0.0
 
+    # Получаем последние 4 точки зигзага H1 для аналитики
+    h1_pts = st.session_state.get(pts_keys["h1_zig"], [])
+    p_a, p_b, p_c, p_d = None, None, None, None
+    if len(h1_pts) >= 4:
+        p_a = h1_pts[-4][1]
+        p_b = h1_pts[-3][1]
+        p_c = h1_pts[-2][1]
+        p_d = h1_pts[-1][1]
+
     with st.expander("Техническая аналитика графика", expanded=False):
+        st.markdown("**Последние 4 точки зигзага тенденции (H1):**")
         c1, c2, c3, c4 = st.columns(4)
-        p_a = c1.number_input("Точка A", value=float(ticker_cache.get("p_a")) if ticker_cache.get("p_a") is not None else None, step=100.0, format="%.2f", key=key("p_a"))
-        p_b = c2.number_input("Точка B", value=float(ticker_cache.get("p_b")) if ticker_cache.get("p_b") is not None else None, step=100.0, format="%.2f", key=key("p_b"))
-        p_c = c3.number_input("Точка C", value=float(ticker_cache.get("p_c")) if ticker_cache.get("p_c") is not None else None, step=100.0, format="%.2f", key=key("p_c"))
-        p_d = c4.number_input("Точка D", value=float(ticker_cache.get("p_d")) if ticker_cache.get("p_d") is not None else None, step=100.0, format="%.2f", key=key("p_d"))
+        
+        val_a = f"{p_a:.{decimals}f}" if p_a is not None else "-"
+        val_b = f"{p_b:.{decimals}f}" if p_b is not None else "-"
+        val_c = f"{p_c:.{decimals}f}" if p_c is not None else "-"
+        val_d = f"{p_d:.{decimals}f}" if p_d is not None else "-"
+        
+        c1.metric("Точка 1", val_a)
+        c2.metric("Точка 2", val_b)
+        c3.metric("Точка 3", val_c)
+        c4.metric("Точка 4", val_d)
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
@@ -522,11 +520,10 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
         horizontal=True, key=key("active_tool")
     )
 
-    # Привязка активного инструмента к ключам сессии
     tool_map = {
         "D1: Канал": ("d1_chan", 3),
         "D1: Уровень 1/2": ("d1_fib", 2),
-        "H1: Зигзаг": ("h1_zig", None), # None = бесконечно
+        "H1: Зигзаг": ("h1_zig", None),
         "H1: Уровень 1/2": ("h1_fib", 2)
     }
     
@@ -589,7 +586,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
                 
                 fig, breakouts = draw_chart(
-                    df_candles, p_a, p_b, p_c, p_d,
+                    df_candles,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
@@ -623,7 +620,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                             pts = st.session_state[active_skey]
                             new_pts = pts.copy()
                             
-                            # Логика добавления точек
                             if max_pts is None or len(new_pts) < max_pts:
                                 if active_k == "h1_zig":
                                     if new_pts and new_pts[-1][0] == bar.name:
@@ -665,7 +661,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                         snapped_y = float(bar['High']) if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']) else float(bar['Low'])
                                         new_pts.append((bar.name, snapped_y))
                                     elif len(new_pts) == 1:
-                                        # Магнит для Fib: если вторая выше первой, то первая Low, вторая High
                                         if clicked_y > new_pts[0][1]:
                                             new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
                                             snapped_y = float(bar['High'])
@@ -715,9 +710,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
-    # Сохранение в кэш
     final_state = {
-        "p_a": p_a, "p_b": p_b, "p_c": p_c, "p_d": p_d,
         "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
         "d1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_fib"], [])],
         "h1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["h1_zig"], [])],
