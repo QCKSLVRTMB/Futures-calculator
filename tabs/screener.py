@@ -9,7 +9,16 @@ TARIFFS = {
     "Без комиссии брокера (только биржа)": {"type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0}
 }
 
-def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
+# Сопоставление уровня риска с колонками IMS
+IMS_MARGIN_MAP = {
+    "НАЧ. ГО": ("IM_BUY", "IM_SELL"),
+    "КНУР":    ("IM_BUY_LRC", "IM_SELL_LRC"),
+    "КСУР":    ("IM_BUY_MRC", "IM_SELL_MRC"),
+    "КПУР":    ("IM_BUY_HRC", "IM_SELL_HRC"),
+    "КОУР":    ("IM_BUY_ERC", "IM_SELL_ERC"),
+}
+
+def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР"):
     st.subheader("🔍 Скринер фьючерсов MOEX")
 
     t1, t2 = st.columns([2, 3])
@@ -39,17 +48,52 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
         df["Commission_addr"] = df["Commission_1"]
         df["Commission_clear"] = t_conf["clearing_fee"] + df["BUYSELLFEE"]
 
-    # ============ ГО по выбранному тарифу ============
-    def _margin_for_ticker(t):
-        if go_df is None or go_df.empty:
-            return 0.0
-        try:
-            return float(get_margin(go_df, t, margin_type, "LONG"))
-        except Exception:
-            return 0.0
+    # ============ ГО LONG/SHORT из IMS ============
+    buy_col, sell_col = IMS_MARGIN_MAP.get(margin_type, ("IM_BUY", "IM_SELL"))
 
-    df["TariffMargin"] = df["SECID"].apply(_margin_for_ticker)
-    df["MarginUsed"] = df["TariffMargin"].where(df["TariffMargin"] > 0, df["INITIALMARGIN"])
+    def _margin_from_ims(ticker):
+        if ims_df is None or ims_df.empty or "SECID" not in ims_df.columns:
+            return 0.0, 0.0
+        row = ims_df[ims_df["SECID"] == ticker]
+        if row.empty:
+            return 0.0, 0.0
+        row = row.iloc[0]
+        long_m = float(row.get(buy_col, 0) or 0)
+        short_m = float(row.get(sell_col, 0) or 0)
+        return long_m, short_m
+
+    def _margin_fallback(ticker):
+        # fallback: Google Sheets -> INITIALMARGIN
+        long_m = short_m = 0.0
+        if go_df is not None and not go_df.empty:
+            try:
+                long_m = float(get_margin(go_df, ticker, margin_type, "LONG"))
+                short_m = float(get_margin(go_df, ticker, margin_type, "SHORT"))
+            except Exception:
+                pass
+        if long_m <= 0 or short_m <= 0:
+            iss_row = iss_df[iss_df["SECID"] == ticker]
+            if not iss_row.empty:
+                init_m = float(iss_row.iloc[0].get("INITIALMARGIN", 0) or 0)
+                if long_m <= 0:
+                    long_m = init_m
+                if short_m <= 0:
+                    short_m = init_m
+        return long_m, short_m
+
+    long_list, short_list = [], []
+    for t in df["SECID"]:
+        l, s = _margin_from_ims(t)
+        if l <= 0 or s <= 0:
+            l2, s2 = _margin_fallback(t)
+            l = l if l > 0 else l2
+            s = s if s > 0 else s2
+        long_list.append(l)
+        short_list.append(s)
+
+    df["MarginLong"]  = long_list
+    df["MarginShort"] = short_list
+    df["MarginUsed"]  = df[["MarginLong", "MarginShort"]].min(axis=1)
 
     def _max_contracts(m, dep):
         try:
@@ -62,19 +106,43 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
 
     df["MaxContracts"] = df["MarginUsed"].apply(lambda m: _max_contracts(m, deposit))
 
-    if go_df is None or go_df.empty:
-        st.warning("Данные ГО из Google Sheets недоступны — используется начальное ГО из MOEX ISS.")
+    if ims_df is None or ims_df.empty:
+        st.info("Данные ГО (IMS) недоступны — используется Google Sheets / INITIALMARGIN.")
 
     # ============ ФИЛЬТРЫ ============
-    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
+    f1, f2, f3, f4 = st.columns([2, 2, 2, 1])
     with f1:
         search = st.text_input("Поиск по тикеру / имени", "", key="scr_search")
     with f2:
         assets = sorted(df["ASSETCODE"].dropna().unique().tolist())
-        asset_pick = st.multiselect("Код актива", assets, default=[], key="scr_asset")
+        asset_pick = st.multiselect(
+            f"Код актива ({len(assets)})",
+            assets, default=[], key="scr_asset",
+            help="Можно выбрать несколько активов одновременно",
+        )
+        if asset_pick:
+            c_l, c_r = st.columns([3, 1])
+            with c_l:
+                st.caption(f"Выбрано: {len(asset_pick)} из {len(assets)}")
+            with c_r:
+                if st.button("Сброс", key="scr_asset_reset", use_container_width=True):
+                    st.session_state["scr_asset"] = []
+                    st.rerun()
     with f3:
         exp_dates = sorted(df["LASTTRADEDATE"].dropna().unique().tolist())
-        exp_pick = st.multiselect("Экспирация", exp_dates, default=[], key="scr_exp")
+        exp_pick = st.multiselect(
+            f"Экспирация ({len(exp_dates)})",
+            exp_dates, default=[], key="scr_exp",
+            help="Можно выбрать несколько дат экспирации одновременно",
+        )
+        if exp_pick:
+            c_l, c_r = st.columns([3, 1])
+            with c_l:
+                st.caption(f"Выбрано: {len(exp_pick)} из {len(exp_dates)}")
+            with c_r:
+                if st.button("Сброс", key="scr_exp_reset", use_container_width=True):
+                    st.session_state["scr_exp"] = []
+                    st.rerun()
     with f4:
         only_traded = st.checkbox("Только торгуемые", value=True, key="scr_traded")
 
@@ -87,7 +155,7 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
             help=f"Скрыть контракты, на которые не хватает депозита ({deposit:,.0f} ₽) при выбранном типе ГО ({margin_type}).",
         )
     with col_info:
-        st.caption(f"Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽**")
+        st.caption(f"Тип ГО: **{margin_type}** · Депозит: **{deposit:,.0f} ₽** · Расчёт по min(LONG, SHORT)")
 
     view = df.copy()
     if search:
@@ -114,15 +182,16 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
         "SECID": "Тикер", "SHORTNAME": "Краткое наименование", "LAST": "Текущая цена",
         "Notional": "Стоимость контракта", "LOTVOLUME": "Доступных лотов", "MINSTEP": "Шаг цены",
         "LASTTRADEDATE": "Дата экспирации", "ASSETCODE": "Код актива", "OPENPOSITION": "Открытых позиций",
-        "LOTSIZE": "Лот", "INITIALMARGIN": "ГО (ISS)",
-        "MarginUsed": "ГО по тарифу", "MaxContracts": "Макс. контрактов",
+        "LOTSIZE": "Лот", "INITIALMARGIN": "ГО (ISS sec)",
+        "MarginLong": "ГО LONG", "MarginShort": "ГО SHORT",
+        "MarginUsed": "ГО (min)", "MaxContracts": "Макс. контрактов",
         "HIGH": "Верхний лимит", "LOW": "Нижний лимит", "STEPPRICE": "Стоимость шага цены",
         "PREVSETTLEPRICE": "Расчетная цена", "PREVPRICE": "Предыдущая цена",
         "Updated": "Дата", "Commission_1": "Комиссия на 1 сделку",
         "Commission_addr": "Комиссия на адресную сделку", "Commission_clear": "Клиринговая комиссия"
     })[[
         "Тикер", "Краткое наименование", "Текущая цена", "Стоимость контракта",
-        "ГО (ISS)", "ГО по тарифу", "Макс. контрактов",
+        "ГО (ISS sec)", "ГО LONG", "ГО SHORT", "ГО (min)", "Макс. контрактов",
         "Доступных лотов", "Шаг цены", "Дата экспирации", "Код актива",
         "Открытых позиций", "Лот", "Верхний лимит", "Нижний лимит", "Стоимость шага цены",
         "Расчетная цена", "Предыдущая цена", "Дата",
@@ -130,7 +199,6 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
     ]]
 
     def _row_style(row):
-        # приоритет: главный контракт (зелёный) > не помещается в депозит (красный)
         if row["Тикер"] in main_tickers:
             return ["background-color: #198754; color: white; font-weight: bold"] * len(row)
         if row["Макс. контрактов"] == 0:
@@ -140,8 +208,10 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
     styled = out.style.apply(_row_style, axis=1).format({
         "Текущая цена": "{:,.2f}",
         "Стоимость контракта": "{:,.0f} ₽",
-        "ГО (ISS)": "{:,.0f} ₽",
-        "ГО по тарифу": "{:,.0f} ₽",
+        "ГО (ISS sec)": "{:,.0f} ₽",
+        "ГО LONG": "{:,.0f} ₽",
+        "ГО SHORT": "{:,.0f} ₽",
+        "ГО (min)": "{:,.0f} ₽",
         "Макс. контрактов": "{:,.0f}",
         "Доступных лотов": "{:,.0f}",
         "Открытых позиций": "{:,.0f}",
@@ -163,8 +233,10 @@ def render_screener(*, iss_df, go_df=None, deposit=0.0, margin_type="КСУР"):
             "Тикер": st.column_config.TextColumn(width="small"),
             "Краткое наименование": st.column_config.TextColumn(width="medium"),
             "Дата": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
-            "ГО по тарифу": st.column_config.NumberColumn(help="ГО по выбранному типу риска из Google Sheets"),
-            "Макс. контрактов": st.column_config.NumberColumn(help="Сколько контрактов помещается на депозит при выбранном ГО"),
+            "ГО LONG": st.column_config.NumberColumn(help="ГО на покупку из MOEX IMS по выбранному уровню риска"),
+            "ГО SHORT": st.column_config.NumberColumn(help="ГО на продажу из MOEX IMS по выбранному уровню риска"),
+            "ГО (min)": st.column_config.NumberColumn(help="min(ГО LONG, ГО SHORT) — используется для расчёта"),
+            "Макс. контрактов": st.column_config.NumberColumn(help="Депозит / ГО (min)"),
         },
     )
 
