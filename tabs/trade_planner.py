@@ -132,14 +132,41 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
     deal = tdata["deal"]
     last_click = st.session_state.get(f"last_click_{ticker}")
 
+    # Синхронизация SL из стейта (если поменяли снаружи)
+    if f"sl_{ticker}" not in st.session_state and deal.get("sl") is not None:
+        st.session_state[f"sl_{ticker}"] = float(deal["sl"])
+
+    def _set_sl_from_click():
+        if last_click:
+            st.session_state[f"sl_{ticker}"] = float(last_click)
+            deal["sl"] = float(last_click)
+            state.autosave(force=True)
+
     c = st.columns(1 if mobile else 3)
-    with c[0]: deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
+    with c[0]: 
+        deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
+    
     with c[1 % len(c)]:
-        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"sl_{ticker}") or None
-        if last_click and st.button("⤵︎ SL = последний клик", key=f"slc_{ticker}", use_container_width=True):
-            deal["sl"] = float(last_click); st.session_state[f"sl_{ticker}"] = float(last_click); state.autosave(force=True); st.rerun(scope="fragment")
+        # Кнопка ДО инпута, чтобы её коллбэк успел обновить состояние
+        if last_click and st.button("⤵︎ SL = последний клик", key=f"slc_{ticker}", use_container_width=True, on_click=_set_sl_from_click):
+            pass # Вся логика в коллбэке
+            
+        deal["sl"] = st.number_input(
+            "Стоп-лосс", 
+            value=float(deal.get("sl") or 0.0), 
+            step=float(inst.min_step or 0.01), 
+            format="%.6f", 
+            key=f"sl_{ticker}"
+        ) or None
+
     with c[2 % len(c)]:
-        deal["tp"] = st.number_input("Тейк-профит (0 = авто по R:R)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
+        deal["tp"] = st.number_input(
+            "Тейк-профит (0 = авто по R:R)", 
+            value=float(deal.get("tp") or 0.0), 
+            step=float(inst.min_step or 0.01), 
+            format="%.6f", 
+            key=f"tp_{ticker}"
+        ) or None
 
     entries_df = pd.DataFrame(deal["entries"] or [{"price": inst.price, "qty": 0, "note": ""}])
     ed = st.data_editor(entries_df.rename(columns={"price": "Цена", "qty": "Кол-во", "note": "Комментарий"}), num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Цена": st.column_config.NumberColumn(format="%.6f", step=inst.min_step), "Кол-во": st.column_config.NumberColumn(format="%d", min_value=0, step=1)}, key=f"entries_{ticker}")
