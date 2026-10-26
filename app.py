@@ -27,6 +27,8 @@ try:
         st.session_state["sb_margin"] = global_settings.get("margin_type", "КСУР")
     if "sb_rr" not in st.session_state:
         st.session_state["sb_rr"] = global_settings.get("rr_ratio", 3.0)
+    if "sb_mobile" not in st.session_state:
+        st.session_state["sb_mobile"] = global_settings.get("mobile_view", False)
 
     with st.sidebar:
         st.header("Параметры")
@@ -54,6 +56,14 @@ try:
         if st.button("Обновить данные", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
+        
+        st.markdown("---")
+        st.header("Интерфейс")
+        mobile_view = st.toggle(
+            "📱 Мобильный вид",
+            key="sb_mobile",
+            help="Превращает таблицы и метрики в карточки — удобно для смартфона.",
+        )
             
         st.markdown("---")
         st.header("Управление настройками")
@@ -81,7 +91,8 @@ try:
 
     new_global_settings = {
         "strategy": strategy, "deposit": deposit, "risk_pct": risk_pct,
-        "commission": commission, "margin_type": margin_type, "rr_ratio": rr_ratio
+        "commission": commission, "margin_type": margin_type, "rr_ratio": rr_ratio,
+        "mobile_view": st.session_state.get("sb_mobile", False),
     }
     if new_global_settings != global_settings:
         save_trend_cache("_global", new_global_settings)
