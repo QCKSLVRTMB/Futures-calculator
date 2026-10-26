@@ -173,15 +173,22 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if df_chart.empty:
         return None
 
+    # --- 1. ОГРАНИЧЕНИЕ КОЛИЧЕСТВА БАРОВ (для толщины) ---
+    # Оставляем только последние 150 баров для читаемости
+    df_chart = df_chart.tail(150).copy()
+
     tick_fmt = f",.{decimals}f"
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
-    fig.add_trace(go.Ohlc(
+    # --- 2. ЯПОНСКИЕ СВЕЧИ (Candlestick) ВМЕСТО OHLC ---
+    fig.add_trace(go.Candlestick(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
         low=df_chart['Low'], close=df_chart['Close'],
-        increasing_line_color='black', decreasing_line_color='black', name='Рынок'
+        increasing=dict(line=dict(color='black', width=1), fillcolor='white'), # Белая заливка для роста
+        decreasing=dict(line=dict(color='black', width=1), fillcolor='black'), # Черная заливка для падения
+        name='Рынок'
     ), row=1, col=1)
 
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
@@ -302,18 +309,16 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     else:
         x_range = None
 
-    # --- АДАПТАЦИЯ ОСИ Y (Максимальное заполнение высоты) ---
+    # --- 3. АДАПТАЦИЯ ОСИ Y ---
     y_min = df_chart['Low'].min()
     y_max = df_chart['High'].max()
 
-    # Если есть плашки, они могут выходить за пределы High/Low, учитываем и их
     if annotations_data:
         ann_vals = [val for _, _, val in annotations_data]
         if ann_vals:
             y_min = min(y_min, min(ann_vals))
             y_max = max(y_max, max(ann_vals))
 
-    # Добавляем отступ в 5% сверху и снизу, чтобы плашки не прилипали к краям
     y_padding = (y_max - y_min) * 0.05
     y_range = [y_min - y_padding, y_max + y_padding]
 
@@ -327,11 +332,9 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         showgrid=True, gridcolor='lightgray', side='right', tickformat=tick_fmt,
         showspikes=True, spikemode='across', spikesnap='cursor',
         spikecolor='gray', spikethickness=1, spikedash='dash',
-        range=y_range, # Применяем вычисленный диапазон
-        row=1, col=1
+        range=y_range, row=1, col=1
     )
 
-    # Ось Y для объема оставляем стандартной
     fig.update_yaxes(
         showgrid=True, gridcolor='lightgray', side='right',
         showspikes=True, spikemode='across', spikesnap='cursor',
