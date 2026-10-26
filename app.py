@@ -133,7 +133,10 @@ try:
         render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=deposit, margin_type=margin_type)
 
     with tabs[1]:
-        render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=deposit, margin_type=margin_type)
+        render_screener(
+            iss_df=iss_df, go_df=go_df, ims_df=ims_df,
+            deposit=deposit, margin_type=margin_type, commission=commission,
+        )
 
     for i, ticker in enumerate(st.session_state["active_tickers"]):
         with tabs[2 + i]:
