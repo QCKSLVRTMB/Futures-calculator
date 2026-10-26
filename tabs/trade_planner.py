@@ -109,7 +109,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1 (по 3 точкам)
     if d1_pts and len(d1_pts) == 3:
         t1, p1 = d1_pts[0]
         t2, p2 = d1_pts[1]
@@ -146,7 +145,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
 
-        # Точки канала с подписями A / B / C
         fig.add_trace(go.Scatter(
             x=[t1, t2, t3], y=[p1, p2, p3],
             mode='markers+text',
@@ -156,7 +154,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Точки канала D1', showlegend=False
         ), row=1, col=1)
 
-    # Fib 0.5 D1
     if d1_fib_pts and len(d1_fib_pts) == 2:
         t1, p1 = d1_fib_pts[0]
         t2, p2 = d1_fib_pts[1]
@@ -175,7 +172,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # Fib 0.5 H1
     if h1_fib_pts and len(h1_fib_pts) == 2:
         t1, p1 = h1_fib_pts[0]
         t2, p2 = h1_fib_pts[1]
@@ -194,7 +190,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             row=1, col=1
         )
 
-    # Ручной зигзаг H1 и Зоны RR
     manual_points_key = f"manual_zigzag_{ticker}_H1"
     manual_pts = []
     if (is_h1 or is_m10) and manual_points_key in st.session_state and st.session_state[manual_points_key]:
@@ -361,7 +356,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 row=1, col=1
             )
 
-    # Объемы
     if 'Volume' in df_chart.columns:
         colors = ['gray'] * len(df_chart)
         volumes = df_chart['Volume'].values
@@ -451,7 +445,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
 
     return fig, breakouts
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio, commission, strategy):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_pct=None, rr_ratio, commission, strategy):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
 
@@ -577,7 +571,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 st.session_state[active_deb] = 0.0
                 st.rerun()
 
-        # Подсказки
         if active_k == "d1_chan":
             pts_now = st.session_state.get(active_skey, [])
             if not isinstance(pts_now, list):
@@ -677,7 +670,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             pts = st.session_state[active_skey]
                             new_pts = pts.copy()
 
-                            # защита: не даём кликнуть по тому же бару, где уже стоит последняя точка
                             same_bar_last = (
                                 bool(new_pts)
                                 and isinstance(new_pts[-1], tuple)
@@ -687,7 +679,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             if (max_pts is None or len(new_pts) < max_pts) and not same_bar_last:
                                 if active_k == "h1_zig":
                                     if not new_pts:
-                                        # первая точка — по позиции клика на баре
                                         snapped_y = (
                                             float(bar['High'])
                                             if abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
@@ -695,11 +686,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                                         )
                                         new_pts.append((bar.name, snapped_y))
                                     elif len(new_pts) == 1:
-                                        # вторая — по позиции клика относительно первой
                                         snapped_y = float(bar['High']) if clicked_y > new_pts[0][1] else float(bar['Low'])
                                         new_pts.append((bar.name, snapped_y))
                                     else:
-                                        # последующие — авто-чередование High ↔ Low
                                         last_time, last_y = new_pts[-1]
                                         is_last_high = np.isclose(last_y, df_view.loc[last_time, 'High'])
                                         snapped_y = float(bar['Low']) if is_last_high else float(bar['High'])
@@ -707,7 +696,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
                                 elif active_k == "d1_chan":
                                     if len(new_pts) == 0:
-                                        # Точка A — по позиции клика на баре
                                         snapped_y = (
                                             float(bar['High'])
                                             if abs(clicked_y - bar['High']) <= abs(clicked_y - bar['Low'])
@@ -716,19 +704,15 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                                         new_pts.append((bar.name, snapped_y))
 
                                     elif len(new_pts) == 1:
-                                        # Точка B — на ПРОТИВОПОЛОЖНОЙ границе бара
                                         if clicked_y > new_pts[0][1]:
-                                            # кликнули выше A → A должна стать Low, B = High
                                             new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'Low']))
                                             snapped_y = float(bar['High'])
                                         else:
-                                            # кликнули ниже A → A = High, B = Low
                                             new_pts[0] = (new_pts[0][0], float(df_view.loc[new_pts[0][0], 'High']))
                                             snapped_y = float(bar['Low'])
                                         new_pts.append((bar.name, snapped_y))
 
                                     elif len(new_pts) == 2:
-                                        # Точка C — на ТОЙ ЖЕ границе, что и A
                                         is_first_low = new_pts[1][1] > new_pts[0][1]
                                         snapped_y = float(bar['Low']) if is_first_low else float(bar['High'])
                                         new_pts.append((bar.name, snapped_y))
@@ -807,11 +791,19 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     st.markdown("#### Параметры сделки")
     p1, p2 = st.columns(2)
-    risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
+
+    default_risk_pct = float(risk_pct) if risk_pct is not None else 1.0
+    risk_pct_input = p1.number_input(
+        "Риск (в % от депозита)",
+        min_value=0.1, max_value=100.0,
+        value=default_risk_pct,
+        step=0.1,
+        key=key("risk_pct"),
+    )
 
     st.info(f"Risk Reward установлен в боковом меню: 1 к {rr_ratio}")
 
-    risk_budget = deposit * (risk_pct / 100)
+    risk_budget = deposit * (risk_pct_input / 100)
     tp_price = avg_entry + (sl_points * rr_ratio) if direction == "LONG" else avg_entry - (sl_points * rr_ratio)
 
     st.info(f"Вход (C): **{avg_entry:,.2f}** | SL (A/B): **{sl_price:,.2f}** | TP: **{tp_price:,.2f}**")
