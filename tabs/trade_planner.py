@@ -46,51 +46,91 @@ def analyze_manual_zigzag(pts, df):
         c_time, c_price = p_c
         d_time, d_price = p_d
         
+        # Восходящая тенденция
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
-            retr_delta = b_price - c_price
-            df_pullback = df.loc[b_time:c_time]
-            retr_bars = len(df_pullback)
-            retr_vol = df_pullback['Volume'].sum()
+            breakout_magnitude = d_price - b_price
             
+            # Проверяем наличие отката E
+            has_pullback = False
+            e_time = e_price = None
+            retracement_pct = None
+            verdict = None
+            
+            if i + 1 < len(pts):
+                e_time, e_price = pts[i+1]
+                if e_price < d_price:
+                    has_pullback = True
+                    if breakout_magnitude > 0:
+                        retracement_pct = (d_price - e_price) / breakout_magnitude * 100
+                        
+                    if e_price > b_price:
+                        verdict = "strong"
+                    elif e_price < b_price:
+                        verdict = "weak"
+                    else:
+                        verdict = "normal"
+
             breakouts.append({
                 "trend": "up",
                 "resistance_time": b_time,
                 "resistance_price": b_price,
-                "pullback_time": c_time,
-                "pullback_price": c_price,
+                "pullback_setup_time": c_time,
+                "pullback_setup_price": c_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
-                "delta": d_price - b_price,
-                "bars": bars,
-                "volume": vol,
-                "retr_delta": retr_delta,
-                "retr_bars": retr_bars,
-                "retr_volume": retr_vol
+                "breakout_magnitude": breakout_magnitude,
+                "breakout_bars": bars,
+                "breakout_volume": vol,
+                "has_pullback": has_pullback,
+                "pullback_time": e_time,
+                "pullback_price": e_price,
+                "retracement_pct": retracement_pct,
+                "verdict": verdict,
             })
+            
+        # Нисходящая тенденция
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
-            retr_delta = c_price - b_price
-            df_pullback = df.loc[b_time:c_time]
-            retr_bars = len(df_pullback)
-            retr_vol = df_pullback['Volume'].sum()
+            breakout_magnitude = b_price - d_price
             
+            has_pullback = False
+            e_time = e_price = None
+            retracement_pct = None
+            verdict = None
+            
+            if i + 1 < len(pts):
+                e_time, e_price = pts[i+1]
+                if e_price > d_price:
+                    has_pullback = True
+                    if breakout_magnitude > 0:
+                        retracement_pct = (e_price - d_price) / breakout_magnitude * 100
+                        
+                    if e_price < b_price:
+                        verdict = "strong"
+                    elif e_price > b_price:
+                        verdict = "weak"
+                    else:
+                        verdict = "normal"
+
             breakouts.append({
                 "trend": "down",
                 "resistance_time": b_time,
                 "resistance_price": b_price,
-                "pullback_time": c_time,
-                "pullback_price": c_price,
+                "pullback_setup_time": c_time,
+                "pullback_setup_price": c_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
                 "breakout_time": brk_time,
-                "delta": b_price - d_price,
-                "bars": bars,
-                "volume": vol,
-                "retr_delta": retr_delta,
-                "retr_bars": retr_bars,
-                "retr_volume": retr_vol
+                "breakout_magnitude": breakout_magnitude,
+                "breakout_bars": bars,
+                "breakout_volume": vol,
+                "has_pullback": has_pullback,
+                "pullback_time": e_time,
+                "pullback_price": e_price,
+                "retracement_pct": retracement_pct,
+                "verdict": verdict,
             })
             
     return breakouts
@@ -99,7 +139,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     if df_chart.empty:
         return None, []
 
-    # --- УМНЫЙ ЗУМ ---
     if zoom_start_time is not None:
         try:
             z_time = pd.to_datetime(zoom_start_time)
@@ -231,7 +270,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Зигзаг (M10)'
         ), row=1, col=1)
 
-        # Отрисовка зон RR по M10 Зигзагу
         if len(m10_zig_pts) >= 2:
             if strategy == "Зигзаг тенденции":
                 t_c, p_c = m10_zig_pts[-2]
@@ -276,16 +314,17 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         
         for brk in breakouts:
             breakout_bg = "rgba(13, 110, 253, 0.9)"
-            pullback_bg = "rgba(253, 126, 20, 0.9)"
             line_color_breakout = "#0d6efd"
             line_color_pullback = "#fd7e14"
             
+            # --- ПРОБОЙ (Синий) ---
             breakout_text = (
-                f"Δ: {brk['delta']:.{decimals}f}<br>"
-                f"Бар: {brk['bars']}<br>"
-                f"Vol: {brk['volume']:,.0f}"
+                f"Δ: {brk['breakout_magnitude']:.{decimals}f}<br>"
+                f"Бар: {brk['breakout_bars']}<br>"
+                f"Vol: {brk['breakout_volume']:,.0f}"
             )
             
+            # Плашка у пика (D)
             peak_key = (brk['peak_time'], brk['peak_price'])
             if peak_key not in drawn_coords:
                 fig.add_annotation(
@@ -300,6 +339,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 )
                 drawn_coords.add(peak_key)
             
+            # Плашка у сопротивления (B)
             res_key = (brk['resistance_time'], brk['resistance_price'])
             if res_key not in drawn_coords:
                 fig.add_annotation(
@@ -314,6 +354,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                 )
                 drawn_coords.add(res_key)
 
+            # Линии пробоя
             fig.add_shape(
                 type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
                 x1=brk['breakout_time'], y1=brk['resistance_price'],
@@ -336,53 +377,62 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             mid_y_breakout = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
             fig.add_annotation(
                 x=brk['breakout_time'], y=mid_y_breakout,
-                text=f"Δ: {brk['delta']:.{decimals}f}",
+                text=f"Δ: {brk['breakout_magnitude']:.{decimals}f}",
                 showarrow=False, xanchor="right", xshift=-5,
                 font=dict(color=line_color_breakout, size=11, weight="bold"),
                 row=1, col=1
             )
 
-            pullback_text = (
-                f"Δ: {brk['retr_delta']:.{decimals}f}<br>"
-                f"Бар: {brk['retr_bars']}<br>"
-                f"Vol: {brk['retr_volume']:,.0f}"
-            )
-            
-            pull_key = (brk['pullback_time'], brk['pullback_price'])
-            if pull_key not in drawn_coords:
+            # --- ОТКАТ (Оранжевый/Зеленый/Красный) ---
+            if brk['has_pullback']:
+                if brk['verdict'] == "strong":
+                    pullback_bg = "rgba(25, 135, 84, 0.9)"  # Зеленый
+                elif brk['verdict'] == "weak":
+                    pullback_bg = "rgba(220, 53, 69, 0.9)"  # Красный
+                else:
+                    pullback_bg = "rgba(253, 126, 20, 0.9)"  # Оранжевый
+
+                pullback_text = (
+                    f"Откат: {brk['retracement_pct']:.1f}%<br>"
+                    f"Оценка: {brk['verdict'].upper()}"
+                )
+                
+                pull_key = (brk['pullback_time'], brk['pullback_price'])
+                if pull_key not in drawn_coords:
+                    fig.add_annotation(
+                        x=brk['pullback_time'], y=brk['pullback_price'],
+                        text=pullback_text,
+                        showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
+                        ax=0, ay=40,
+                        bgcolor=pullback_bg, 
+                        font=dict(color="white", size=10),
+                        bordercolor="black", borderwidth=1, borderpad=3,
+                        row=1, col=1
+                    )
+                    drawn_coords.add(pull_key)
+
+                # Линии отката (от D до E)
+                fig.add_shape(
+                    type="line", x0=brk['peak_time'], y0=brk['peak_price'], 
+                    x1=brk['peak_time'], y1=brk['pullback_price'],
+                    line=dict(color=line_color_pullback, width=2, dash="dot"), 
+                    xref="x", yref="y", row=1, col=1
+                )
+                fig.add_shape(
+                    type="line", x0=brk['peak_time'], y0=brk['pullback_price'], 
+                    x1=brk['pullback_time'], y1=brk['pullback_price'],
+                    line=dict(color=line_color_pullback, width=2), 
+                    xref="x", yref="y", row=1, col=1
+                )
+
+                mid_y_pullback = brk['pullback_price'] + (brk['peak_price'] - brk['pullback_price']) / 2
                 fig.add_annotation(
-                    x=brk['pullback_time'], y=brk['pullback_price'],
-                    text=pullback_text,
-                    showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=line_color_pullback,
-                    ax=0, ay=40,
-                    bgcolor=pullback_bg, 
-                    font=dict(color="white", size=10),
-                    bordercolor="black", borderwidth=1, borderpad=3,
+                    x=brk['peak_time'], y=mid_y_pullback,
+                    text=f"{brk['retracement_pct']:.1f}%",
+                    showarrow=False, xanchor="right", xshift=-5,
+                    font=dict(color=line_color_pullback, size=11, weight="bold"),
                     row=1, col=1
                 )
-                drawn_coords.add(pull_key)
-
-            fig.add_shape(
-                type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], 
-                x1=brk['breakout_time'], y1=brk['pullback_price'],
-                line=dict(color=line_color_pullback, width=2, dash="dot"), 
-                xref="x", yref="y", row=1, col=1
-            )
-            fig.add_shape(
-                type="line", x0=brk['breakout_time'], y0=brk['pullback_price'], 
-                x1=brk['pullback_time'], y1=brk['pullback_price'],
-                line=dict(color=line_color_pullback, width=2), 
-                xref="x", yref="y", row=1, col=1
-            )
-
-            mid_y_pullback = brk['pullback_price'] + (brk['resistance_price'] - brk['pullback_price']) / 2
-            fig.add_annotation(
-                x=brk['breakout_time'], y=mid_y_pullback,
-                text=f"Δ: {brk['retr_delta']:.{decimals}f}",
-                showarrow=False, xanchor="right", xshift=-5,
-                font=dict(color=line_color_pullback, size=11, weight="bold"),
-                row=1, col=1
-            )
 
     # Объемы
     if 'Volume' in df_chart.columns:
@@ -575,7 +625,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             is_h1 = (tf_name == "H1")
             is_m10 = (tf_name == "M10")
 
-            # Выбор инструмента ВНУТРИ вкладки
             if is_d1:
                 active_tool = st.radio(
                     "Выберите инструмент для рисования (D1)", 
@@ -757,12 +806,11 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             {
                                 "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
                                 "Уровень сопр.": b["resistance_price"],
-                                "Откат": b["pullback_price"],
                                 "Пик (D)": b["peak_price"],
-                                "Δ Пробоя": b["delta"],
-                                "Δ Отката": b["retr_delta"],
-                                "Бар. (пробой/откат)": f"{b['bars']} / {b['retr_bars']}",
-                                "Объем (пробой/откат)": f"{b['volume']:,.0f} / {b['retr_volume']:,.0f}"
+                                "Δ Пробоя": b["breakout_magnitude"],
+                                "Откат (E)": b["pullback_price"] if b["has_pullback"] else "-",
+                                "Ретр. %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
+                                "Оценка": {"strong": "Сильная", "weak": "Слабая", "normal": "Нормальная"}.get(b["verdict"], "-")
                             }
                             for b in breakouts
                         ])
@@ -773,10 +821,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                             hide_index=True,
                             column_config={
                                 "Уровень сопр.": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Откат": st.column_config.NumberColumn(format=f"%.{decimals}f"),
                                 "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
                                 "Δ Пробоя": st.column_config.NumberColumn(format=f"%.{decimals}f"),
-                                "Δ Отката": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                "Откат (E)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
                             }
                         )
             except Exception as e:
