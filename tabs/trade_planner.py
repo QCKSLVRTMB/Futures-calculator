@@ -50,107 +50,46 @@ def detect_trend(df):
             return "Тренд вниз"
     return "Боковик"
 
-def build_sperandeo_channel(df, trend_direction):
-    """
-    Строит канал по правилам Сперандео.
-    Возвращает два массива x и y для основной линии и параллельной линии канала.
-    """
-    if len(df) < 30 or trend_direction == "Боковик":
-        return None
-
-    # Используем окно для поиска локальных экстремумов (фракталов)
+def get_sperandeo_defaults(df, trend):
+    """Автоматически находит последние точки для канала Сперандео."""
+    if df.empty or trend == "Боковик" or len(df) < 20:
+        return 0.0, 0.0, 0.0
+        
     window = 5
-    df = df.copy()
-    df['local_min'] = df['Low'].rolling(window=window, center=True).min() == df['Low']
-    df['local_max'] = df['High'].rolling(window=window, center=True).max() == df['High']
+    df_temp = df.copy()
+    
+    if trend == "Тренд вверх":
+        df_temp['local_min'] = df_temp['Low'].rolling(window=window, center=True).min() == df_temp['Low']
+        min_indices = df_temp[df_temp['local_min']].index
+        if len(min_indices) >= 2:
+            for i in range(len(min_indices)-1, 0, -1):
+                y2 = df_temp.loc[min_indices[i], 'Low']
+                y1 = df_temp.loc[min_indices[i-1], 'Low']
+                if y2 > y1:
+                    idx1 = min_indices[i-1]
+                    idx2 = min_indices[i]
+                    y3 = df_temp.loc[idx1:idx2, 'High'].max()
+                    return float(y1), float(y2), float(y3)
+    else: # Тренд вниз
+        df_temp['local_max'] = df_temp['High'].rolling(window=window, center=True).max() == df_temp['High']
+        max_indices = df_temp[df_temp['local_max']].index
+        if len(max_indices) >= 2:
+            for i in range(len(max_indices)-1, 0, -1):
+                y2 = df_temp.loc[max_indices[i], 'High']
+                y1 = df_temp.loc[max_indices[i-1], 'High']
+                if y2 < y1:
+                    idx1 = max_indices[i-1]
+                    idx2 = max_indices[i]
+                    y3 = df_temp.loc[idx1:idx2, 'Low'].min()
+                    return float(y1), float(y2), float(y3)
+                    
+    # Если не нашли подходящих точек, возвращаем глобальные экстремумы
+    if trend == "Тренд вверх":
+        return float(df['Low'].min()), float(df['Low'].min() * 1.02), float(df['High'].max())
+    else:
+        return float(df['High'].max()), float(df['High'].max() * 0.98), float(df['Low'].min())
 
-    # Индексы локальных экстремумов
-    min_indices = df[df['local_min']].index
-    max_indices = df[df['local_max']].index
-
-    if trend_direction == "Тренд вверх":
-        # Ищем два последних повышающихся минимума
-        valid_mins = []
-        for i in range(1, len(min_indices)):
-            if df.loc[min_indices[i], 'Low'] > df.loc[min_indices[i-1], 'Low']:
-                valid_mins.append((min_indices[i-1], min_indices[i]))
-        
-        if not valid_mins:
-            return None
-        
-        # Берём последнюю найденную пару
-        p1, p2 = valid_mins[-1]
-        y1, y2 = df.loc[p1, 'Low'], df.loc[p2, 'Low']
-        
-        # Находим максимум между этими точками для построения параллельной линии
-        mask = (df.index >= p1) & (df.index <= p2)
-        if mask.sum() == 0:
-            return None
-        peak_idx = df.loc[mask, 'High'].idxmax()
-        peak_y = df.loc[peak_idx, 'High']
-        
-        # Уравнение прямой линии тренда (y = kx + b)
-        x1, x2 = df.index.get_loc(p1), df.index.get_loc(p2)
-        k = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
-        b = y1 - k * x1
-        
-        # Параллельная линия через пик
-        peak_x = df.index.get_loc(peak_idx)
-        b_parallel = peak_y - k * peak_x
-        
-        # Генерируем линии на всём диапазоне графика
-        x_full = np.arange(len(df))
-        y_trend = k * x_full + b
-        y_parallel = k * x_full + b_parallel
-        
-        return {
-            'x': df.index,
-            'y_trend': y_trend,
-            'y_parallel': y_parallel,
-            'color': '#198754'  # Зелёный для восходящего
-        }
-
-    elif trend_direction == "Тренд вниз":
-        # Ищем два последних понижающихся максимума
-        valid_maxs = []
-        for i in range(1, len(max_indices)):
-            if df.loc[max_indices[i], 'High'] < df.loc[max_indices[i-1], 'High']:
-                valid_maxs.append((max_indices[i-1], max_indices[i]))
-        
-        if not valid_maxs:
-            return None
-        
-        p1, p2 = valid_maxs[-1]
-        y1, y2 = df.loc[p1, 'High'], df.loc[p2, 'High']
-        
-        # Находим минимум между этими точками
-        mask = (df.index >= p1) & (df.index <= p2)
-        if mask.sum() == 0:
-            return None
-        trough_idx = df.loc[mask, 'Low'].idxmin()
-        trough_y = df.loc[trough_idx, 'Low']
-        
-        x1, x2 = df.index.get_loc(p1), df.index.get_loc(p2)
-        k = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
-        b = y1 - k * x1
-        
-        trough_x = df.index.get_loc(trough_idx)
-        b_parallel = trough_y - k * trough_x
-        
-        x_full = np.arange(len(df))
-        y_trend = k * x_full + b
-        y_parallel = k * x_full + b_parallel
-        
-        return {
-            'x': df.index,
-            'y_trend': y_trend,
-            'y_parallel': y_parallel,
-            'color': '#dc3545'  # Красный для нисходящего
-        }
-
-    return None
-
-def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False):
+def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, show_trend=False, channel_data=None):
     if df_chart.empty:
         return None
 
@@ -159,12 +98,14 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.03, row_heights=[0.8, 0.2])
 
+    # Бары OHLC (черные)
     fig.add_trace(go.Ohlc(
         x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
         low=df_chart['Low'], close=df_chart['Close'],
         increasing_line_color='black', decreasing_line_color='black', name='Рынок'
     ), row=1, col=1)
 
+    # Зигзаг
     if all(x is not None for x in [p_a, p_b, p_c, p_d]):
         n = len(df_chart)
         step = max(1, n // 3)
@@ -185,6 +126,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Зигзаг'
         ), row=1, col=1)
 
+    # Объем
     if 'Volume' in df_chart.columns:
         colors = ['black' if c >= o else 'gray' for o, c in zip(df_chart['Open'], df_chart['Close'])]
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
@@ -210,35 +152,35 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             borderpad=6, opacity=0.9
         )
 
-        # --- КАНАЛ СПЕРАНДЕО ---
-        channel_data = build_sperandeo_channel(df_chart, trend_text)
-        if channel_data:
-            # Основная линия тренда
-            fig.add_trace(go.Scatter(
-                x=channel_data['x'], y=channel_data['y_trend'],
-                mode='lines', name='Линия тренда (Сперандео)',
-                line=dict(color=channel_data['color'], width=2, dash='dash')
-            ), row=1, col=1)
+    # --- РУЧНОЙ КАНАЛ СПЕРАНДЕО (ЛУЧИ) ---
+    if channel_data and not df_chart.empty:
+        x1, y1, x2, y2, x3, y3 = channel_data
+        
+        try:
+            idx1 = df_chart.index.get_loc(x1)
+            idx2 = df_chart.index.get_loc(x2)
+            idx3 = df_chart.index.get_loc(x3)
             
-            # Параллельная линия канала
-            fig.add_trace(go.Scatter(
-                x=channel_data['x'], y=channel_data['y_parallel'],
-                mode='lines', name='Граница канала',
-                line=dict(color=channel_data['color'], width=2, dash='dot')
-            ), row=1, col=1)
+            # Уравнение прямой (Наклон и смещение)
+            slope = (y2 - y1) / (idx2 - idx1) if idx2 != idx1 else 0
+            intercept = y1 - slope * idx1
+            intercept_par = y3 - slope * idx3
             
-            # Заливка канала
-            fig.add_trace(go.Scatter(
-                x=channel_data['x'], y=channel_data['y_trend'],
-                mode='lines', line=dict(width=0), showlegend=False,
-                hoverinfo='skip'
-            ), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=channel_data['x'], y=channel_data['y_parallel'],
-                mode='lines', line=dict(width=0), showlegend=False,
-                hoverinfo='skip', fill='tonexty',
-                fillcolor=f"rgba({int(channel_data['color'][1:3], 16)}, {int(channel_data['color'][3:5], 16)}, {int(channel_data['color'][5:7], 16)}, 0.1)"
-            ), row=1, col=1)
+            # Продлеваем линии вправо (на 10 баров дальше последнего)
+            x_end = len(df_chart) + 10
+            if len(df_chart) > 1:
+                dt_end = df_chart.index[-1] + (x_end - len(df_chart) + 1) * (df_chart.index[-1] - df_chart.index[-2])
+            else:
+                dt_end = df_chart.index[-1]
+                
+            x_ray = [x1, dt_end]
+            y_ray1 = [y1, slope * x_end + intercept]
+            y_ray2 = [y3, slope * x_end + intercept_par]
+            
+            fig.add_trace(go.Scatter(x=x_ray, y=y_ray1, mode='lines', name='Канал 1', line=dict(color='blue', width=2)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=x_ray, y=y_ray2, mode='lines', name='Канал 2', line=dict(color='blue', width=2)), row=1, col=1)
+        except Exception as e:
+            pass
 
     fig.update_layout(
         title=title, height=700,
@@ -317,6 +259,48 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     selected_label = st.selectbox("🎯 Сценарий:", list(options_labels.keys()), key=key("scenario"))
     tt, direction, rule = options_labels[selected_label]
 
+    # --- Загрузка D1 для тренда и канала ---
+    df_d1 = fetch_moex_candles(ticker, interval=24, days_back=250)
+    trend_d1 = detect_trend(df_d1) if not df_d1.empty else "Боковик"
+
+    channel_data = None
+    with st.expander("📐 Трендовый канал (Сперандео)"):
+        st.markdown(f"**Определенный тренд (D1):** {trend_d1}")
+        
+        if trend_d1 == "Тренд вверх":
+            d1, d2, d3 = get_sperandeo_defaults(df_d1, trend_d1)
+            c1, c2, c3 = st.columns(3)
+            y1 = c1.number_input("Минимум 1", value=d1, step=100.0, format="%.2f", key=key("min1"))
+            y2 = c2.number_input("Минимум 2", value=d2, step=100.0, format="%.2f", key=key("min2"))
+            y3 = c3.number_input("Максимум", value=d3, step=100.0, format="%.2f", key=key("max"))
+            
+            if y1 < y2:
+                x1 = (df_d1['Low'] - y1).abs().idxmin()
+                x2 = (df_d1['Low'] - y2).abs().idxmin()
+                if x1 > x2: x1, x2 = x2, x1
+                x3 = (df_d1.loc[x1:x2, 'High'] - y3).abs().idxmin()
+                channel_data = (x1, y1, x2, y2, x3, y3)
+            else:
+                st.error("Минимум 1 должен быть меньше Минимума 2")
+                
+        elif trend_d1 == "Тренд вниз":
+            d1, d2, d3 = get_sperandeo_defaults(df_d1, trend_d1)
+            c1, c2, c3 = st.columns(3)
+            y1 = c1.number_input("Максимум 1", value=d1, step=100.0, format="%.2f", key=key("max1"))
+            y2 = c2.number_input("Максимум 2", value=d2, step=100.0, format="%.2f", key=key("max2"))
+            y3 = c3.number_input("Минимум", value=d3, step=100.0, format="%.2f", key=key("min"))
+            
+            if y1 > y2:
+                x1 = (df_d1['High'] - y1).abs().idxmin()
+                x2 = (df_d1['High'] - y2).abs().idxmin()
+                if x1 > x2: x1, x2 = x2, x1
+                x3 = (df_d1.loc[x1:x2, 'Low'] - y3).abs().idxmin()
+                channel_data = (x1, y1, x2, y2, x3, y3)
+            else:
+                st.error("Максимум 1 должен быть больше Максимума 2")
+        else:
+            st.info("Для боковика канал не строится.")
+
     st.markdown("#### 🧩 Торгуемый зигзаг (A-B-C-D)")
     c1, c2, c3, c4 = st.columns(4)
     p_a = c1.number_input("Точка A", value=None, step=100.0, format="%.2f", key=key("p_a"))
@@ -353,7 +337,8 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
                     decimals=decimals,
-                    show_trend=cfg["show_trend"]
+                    show_trend=cfg["show_trend"],
+                    channel_data=channel_data if tf_name == "D1" else None
                 )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
