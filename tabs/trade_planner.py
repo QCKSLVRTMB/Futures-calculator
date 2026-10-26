@@ -415,7 +415,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
     
     return fig, breakouts
 
-def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
+def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ratio):
     key = lambda n: f"deal_{ticker}_{n}"
     st.subheader(f"Позиция: {ticker}")
 
@@ -714,17 +714,16 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     sl_price = p_a if direction == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
 
-    # Убраны все проверки, блокирующие расчет.
-
     st.markdown("#### Параметры сделки")
     p1, p2 = st.columns(2)
     risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
-    rr_ratio = p2.number_input("Risk Reward (1 к ...)", min_value=1.0, value=3.0, step=0.5, key=key("rr_ratio"))
+    
+    st.info(f"Risk Reward установлен в боковом меню: 1 к {rr_ratio}")
 
     risk_budget = deposit * (risk_pct / 100)
     tp_price = avg_entry + (sl_points * rr_ratio) if direction == "LONG" else avg_entry - (sl_points * rr_ratio)
 
-    st.info(f"Вход (C): **{avg_entry:,.2f}** | SL (A/B): **{sl_price:,.2f}** | TP: **{tp_price:,.2f}** (RR 1:{rr_ratio})")
+    st.info(f"Вход (C): **{avg_entry:,.2f}** | SL (A/B): **{sl_price:,.2f}** | TP: **{tp_price:,.2f}**")
 
     max_contracts_by_risk = int(risk_budget / (sl_points * pv)) if pv > 0 else 0
     if max_contracts_by_risk < 1:
