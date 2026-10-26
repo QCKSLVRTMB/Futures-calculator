@@ -822,8 +822,20 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         c4.metric("Макс. контрактов", f"{max_contracts_by_risk}")
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Чистый убыток (SL)", f"−{fmt_ru(abs(net_loss), 2, ' ₽')}")
-        c2.metric("Чистая прибыль (TP)", f"+{fmt_ru(abs(net_profit), 2, ' ₽')}")
+        with c1:
+            st.markdown(
+                f'<div style="font-size:14px;color:#666;margin-bottom:2px;">Чистый убыток (SL)</div>'
+                f'<div style="font-size:24px;font-weight:600;line-height:1.2;color:#d32f2f;">'
+                f'−{fmt_ru(abs(net_loss), 2, " ₽")}</div>',
+                unsafe_allow_html=True,
+            )
+        with c2:
+            st.markdown(
+                f'<div style="font-size:14px;color:#666;margin-bottom:2px;">Чистая прибыль (TP)</div>'
+                f'<div style="font-size:24px;font-weight:600;line-height:1.2;color:#2e7d32;">'
+                f'+{fmt_ru(abs(net_profit), 2, " ₽")}</div>',
+                unsafe_allow_html=True,
+            )
         c3.metric("RR факт", f"1:{fmt_ru(actual_rr, 2)}" if actual_rr > 0 else "—")
         c4.metric("Бюджет риска", fmt_ru(risk_budget, 2, " ₽"))
 
