@@ -110,12 +110,10 @@ def get_sperandeo_geometry(df, trend_direction):
     return None, None, None, None, []
 
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
-    """Считает бары и объем от момента пробоя сопротивления до пика."""
     df_period = df.loc[start_time:end_time]
     if df_period.empty:
         return 0, 0
         
-    # Ищем бар, на котором произошел пробой (High > resistance для роста)
     if is_up:
         breakout_bars = df_period[df_period['High'] > resistance_price]
     else:
@@ -124,28 +122,23 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
     if not breakout_bars.empty:
         breakout_time = breakout_bars.index[0]
     else:
-        breakout_time = start_time # Если точного пробоя нет (погрешность), берем начало
+        breakout_time = start_time
         
     df_active = df.loc[breakout_time:end_time]
     return len(df_active), df_active['Volume'].sum()
 
 def analyze_manual_zigzag(pts, df):
-    """Сканирует зигзаг и находит все последовательные пробои (ABCDEFGH)."""
     if len(pts) < 4:
         return []
         
     breakouts = []
-    
-    # Проходим скользящим окном по 4 точки
     for i in range(3, len(pts)):
         p_a, p_b, p_c, p_d = pts[i-3], pts[i-2], pts[i-1], pts[i]
-        
         a_time, a_price = p_a
         b_time, b_price = p_b
         c_time, c_price = p_c
         d_time, d_price = p_d
         
-        # Восходящая тенденция: A < B, C > A (но < B), D > B
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             breakouts.append({
@@ -157,8 +150,6 @@ def analyze_manual_zigzag(pts, df):
                 "bars": bars,
                 "volume": vol
             })
-            
-        # Нисходящая тенденция: A > B, C < A (но > B), D < B
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             breakouts.append({
@@ -223,30 +214,24 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Ручной зигзаг (H1)'
         ), row=1, col=1)
 
-    # Анализ ручного зигзага
     breakouts = []
     if is_h1 and manual_pts:
         breakouts = analyze_manual_zigzag(manual_pts, df_chart)
         
-        # Наносим плашки для каждого пробоя
         for brk in breakouts:
-            # Плашка тренда
             bg_color = "#198754" if brk['trend'] == "up" else "#dc3545"
-            trend_label = "Тенденция вверх" if brk['trend'] == "up" else "Тенденция вниз"
             
-            # Текст с метриками
             metrics_text = (
                 f"Δ: {brk['delta']:.{decimals}f}<br>"
                 f"Бар: {brk['bars']}<br>"
                 f"Vol: {brk['volume']:,.0f}"
             )
             
-            # Аннотация у пика
             fig.add_annotation(
                 x=brk['peak_time'], y=brk['peak_price'],
                 text=metrics_text,
                 showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=bg_color,
-                ax=40, ay=-40, # Смещение вправо и вверх
+                ax=40, ay=-40,
                 bgcolor="rgba(255, 255, 255, 0.8)", 
                 font=dict(color="black", size=10),
                 bordercolor=bg_color, borderwidth=1, borderpad=3,
@@ -602,13 +587,42 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 
                 if fig:
                     if is_h1:
-                        col1, col2 = st.columns([1, 1])
+                        # Инициализация стеков истории для Undo/Redo
+                        pts_key = f"manual_zigzag_{ticker}_H1"
+                        undo_key = f"undo_{ticker}_H1"
+                        redo_key = f"redo_{ticker}_H1"
+                        
+                        if pts_key not in st.session_state:
+                            st.session_state[pts_key] = []
+                        if undo_key not in st.session_state:
+                            st.session_state[undo_key] = []
+                        if redo_key not in st.session_state:
+                            st.session_state[redo_key] = []
+
+                        # Кнопки управления
+                        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
                         with col1:
-                            draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
+                            if st.button("⬅️ Отменить", key=f"undo_btn_{ticker}"):
+                                if len(st.session_state[undo_key]) > 0:
+                                    prev_state = st.session_state[undo_key].pop()
+                                    st.session_state[redo_key].append(st.session_state[pts_key].copy())
+                                    st.session_state[pts_key] = prev_state
+                                    st.rerun()
                         with col2:
-                            if st.button("🗑️ Очистить зигзаг", key=f"clear_{ticker}_H1"):
-                                st.session_state[f"manual_zigzag_{ticker}_H1"] = []
+                            if st.button("➡️ Повторить", key=f"redo_btn_{ticker}"):
+                                if len(st.session_state[redo_key]) > 0:
+                                    next_state = st.session_state[redo_key].pop()
+                                    st.session_state[undo_key].append(st.session_state[pts_key].copy())
+                                    st.session_state[pts_key] = next_state
+                                    st.rerun()
+                        with col3:
+                            if st.button("🗑️ Очистить", key=f"clear_{ticker}_H1"):
+                                st.session_state[undo_key].append(st.session_state[pts_key].copy())
+                                st.session_state[redo_key] = []
+                                st.session_state[pts_key] = []
                                 st.rerun()
+                        with col4:
+                            draw_mode = st.toggle("✏️ Режим рисования зигзага", value=True, key=f"draw_mode_{ticker}_H1")
 
                         if draw_mode:
                             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
@@ -622,42 +636,58 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 idx = df_h1_view.index.get_indexer([clicked_time], method='nearest')[0]
                                 bar = df_h1_view.iloc[idx]
                                 
-                                manual_points_key = f"manual_zigzag_{ticker}_H1"
-                                if manual_points_key not in st.session_state:
-                                    st.session_state[manual_points_key] = []
+                                pts = st.session_state[pts_key]
+                                new_pts = pts.copy()
                                 
-                                pts = st.session_state[manual_points_key]
-                                
-                                # ПРОВЕРКА НА ПОВТОРНЫЙ КЛИК
-                                if pts and pts[-1][0] == bar.name:
-                                    last_y = pts[-1][1]
-                                    if np.isclose(last_y, bar['High']):
-                                        snapped_y = float(bar['Low'])
-                                    else:
+                                # ЛОГИКА МАГНИТА
+                                if not new_pts:
+                                    # Первая точка: куда ближе
+                                    snapped_y = float(bar['High']) if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']) else float(bar['Low'])
+                                    new_pts.append((bar.name, snapped_y))
+                                elif len(new_pts) == 1:
+                                    # Вторая точка: определяем тренд
+                                    if clicked_y > new_pts[0][1]:
                                         snapped_y = float(bar['High'])
-                                    
-                                    pts[-1] = (bar.name, snapped_y)
-                                    st.session_state[manual_points_key] = pts
-                                    st.rerun()
+                                    else:
+                                        snapped_y = float(bar['Low'])
+                                    new_pts.append((bar.name, snapped_y))
                                 else:
-                                    if abs(clicked_y - bar['High']) < abs(clicked_y - bar['Low']):
-                                        snapped_y = float(bar['High'])
+                                    # Последующие точки: строго чередуем
+                                    last_time, last_y = new_pts[-1]
+                                    
+                                    if last_time == bar.name:
+                                        # Повторный клик: инвертируем
+                                        if np.isclose(last_y, bar['High']):
+                                            snapped_y = float(bar['Low'])
+                                        else:
+                                            snapped_y = float(bar['High'])
+                                        new_pts[-1] = (bar.name, snapped_y)
                                     else:
-                                        snapped_y = float(bar['Low'])
+                                        # Новый бар: смотрим на тип последней точки
+                                        last_bar = df_h1_view.loc[last_time]
+                                        is_last_high = np.isclose(last_y, last_bar['High'])
                                         
-                                    new_pt = (bar.name, snapped_y)
-                                    pts.append(new_pt)
-                                    st.session_state[manual_points_key] = pts
+                                        if is_last_high:
+                                            snapped_y = float(bar['Low'])  # После High идет Low
+                                        else:
+                                            snapped_y = float(bar['High']) # После Low идет High
+                                            
+                                        new_pts.append((bar.name, snapped_y))
+
+                                # Проверяем, изменилось ли состояние
+                                if new_pts != pts:
+                                    st.session_state[undo_key].append(pts.copy())
+                                    st.session_state[redo_key] = [] # Сбрасываем redo при новом действии
+                                    st.session_state[pts_key] = new_pts
                                     st.rerun()
                         else:
                             st.plotly_chart(fig, use_container_width=True)
                             
-                        # Панель метрик (сводная таблица)
+                        # Панель метрик
                         if breakouts:
                             st.markdown("---")
                             st.markdown("#### 📈 Анализ пробоев структуры H1")
                             
-                            # Формируем красивую таблицу для вывода
                             df_metrics = pd.DataFrame([
                                 {
                                     "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
