@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 from data import (
-    load_api, load_go, load_marketdata, fetch_moex_forts,
+    load_api, load_go, load_marketdata, fetch_moex_forts, fetch_moex_ims,
     export_cache_to_string, import_cache_from_string,
     load_trend_cache, save_trend_cache
 )
@@ -38,7 +38,6 @@ try:
     if "sb_mobile" not in st.session_state:
         st.session_state["sb_mobile"] = global_settings.get("mobile_view", False)
 
-    # ============ Восстановление вкладок и состояния главной таблицы из кэша ============
     if "active_tickers" not in st.session_state:
         st.session_state["active_tickers"] = cache.get("_active_tickers", [])
     if "market_state" not in st.session_state:
@@ -121,6 +120,7 @@ try:
 
     with st.spinner("Загрузка данных с MOEX ISS..."):
         iss_df = fetch_moex_forts()
+        ims_df = fetch_moex_ims()
 
     api_df = load_api()
     go_df = load_go()
@@ -133,7 +133,7 @@ try:
         render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=deposit, margin_type=margin_type)
 
     with tabs[1]:
-        render_screener(iss_df=iss_df, go_df=go_df, deposit=deposit, margin_type=margin_type)
+        render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=deposit, margin_type=margin_type)
 
     for i, ticker in enumerate(st.session_state["active_tickers"]):
         with tabs[2 + i]:
