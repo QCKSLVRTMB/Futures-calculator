@@ -109,53 +109,73 @@ def get_sperandeo_geometry(df, trend_direction):
         
     return None, None, None, None, []
 
+def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
+    """Считает бары и объем от момента пробоя сопротивления до пика."""
+    df_period = df.loc[start_time:end_time]
+    if df_period.empty:
+        return 0, 0
+        
+    # Ищем бар, на котором произошел пробой (High > resistance для роста)
+    if is_up:
+        breakout_bars = df_period[df_period['High'] > resistance_price]
+    else:
+        breakout_bars = df_period[df_period['Low'] < resistance_price]
+        
+    if not breakout_bars.empty:
+        breakout_time = breakout_bars.index[0]
+    else:
+        breakout_time = start_time # Если точного пробоя нет (погрешность), берем начало
+        
+    df_active = df.loc[breakout_time:end_time]
+    return len(df_active), df_active['Volume'].sum()
+
 def analyze_manual_zigzag(pts, df):
-    """
-    Анализирует нарисованный зигзаг на наличие структуры A-B-C-D с пробоем.
-    Возвращает: trend_type (вверх/вниз), start_idx, end_idx, price_diff, bars, volume
-    """
+    """Сканирует зигзаг и находит все последовательные пробои (ABCDEFGH)."""
     if len(pts) < 4:
-        return None
+        return []
         
-    # Проверяем от последней точки назад
-    for i in range(len(pts) - 1, 2, -1):
-        d_time, d_price = pts[i]
-        c_time, c_price = pts[i-1]
-        b_time, b_price = pts[i-2]
-        a_time, a_price = pts[i-3]
+    breakouts = []
+    
+    # Проходим скользящим окном по 4 точки
+    for i in range(3, len(pts)):
+        p_a, p_b, p_c, p_d = pts[i-3], pts[i-2], pts[i-1], pts[i]
         
-        # Восходящий тренд: A < B, C > A (но C < B), D > B
-        if a_price < b_price and c_price > a_price and c_price < b_price and d_price > b_price:
-            # Считаем объем и бары между B и D
-            df_slice = df.loc[b_time:d_time]
-            if not df_slice.empty:
-                return {
-                    "trend": "Тенденция вверх",
-                    "b_time": b_time, "b_price": b_price,
-                    "d_time": d_time, "d_price": d_price,
-                    "price_diff": d_price - b_price,
-                    "bars": len(df_slice),
-                    "volume": df_slice['Volume'].sum()
-                }
-                
-        # Нисходящий тренд: A > B, C < A (но C > B), D < B
-        elif a_price > b_price and c_price < a_price and c_price > b_price and d_price < b_price:
-            df_slice = df.loc[b_time:d_time]
-            if not df_slice.empty:
-                return {
-                    "trend": "Тенденция вниз",
-                    "b_time": b_time, "b_price": b_price,
-                    "d_time": d_time, "d_price": d_price,
-                    "price_diff": b_price - d_price,
-                    "bars": len(df_slice),
-                    "volume": df_slice['Volume'].sum()
-                }
-                
-    return None
+        a_time, a_price = p_a
+        b_time, b_price = p_b
+        c_time, c_price = p_c
+        d_time, d_price = p_d
+        
+        # Восходящая тенденция: A < B, C > A (но < B), D > B
+        if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
+            bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
+            breakouts.append({
+                "trend": "up",
+                "resistance_price": b_price,
+                "peak_time": d_time,
+                "peak_price": d_price,
+                "delta": d_price - b_price,
+                "bars": bars,
+                "volume": vol
+            })
+            
+        # Нисходящая тенденция: A > B, C < A (но > B), D < B
+        elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
+            bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
+            breakouts.append({
+                "trend": "down",
+                "resistance_price": b_price,
+                "peak_time": d_time,
+                "peak_price": d_price,
+                "delta": b_price - d_price,
+                "bars": bars,
+                "volume": vol
+            })
+            
+    return breakouts
 
 def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decimals=0, trend_text="", channel_data=None, annotations_data=None, is_h1=False, is_m10=False, is_d1=False, ticker=""):
     if df_chart.empty:
-        return None
+        return None, []
 
     df_chart = df_chart.tail(150).copy()
     tick_fmt = f".{decimals}f"
@@ -203,37 +223,33 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             name='Ручной зигзаг (H1)'
         ), row=1, col=1)
 
-    # Анализ ручного зигзага и добавление плашки/метрик
-    h1_trend_info = None
+    # Анализ ручного зигзага
+    breakouts = []
     if is_h1 and manual_pts:
-        h1_trend_info = analyze_manual_zigzag(manual_pts, df_chart)
-        if h1_trend_info:
-            # Плашка тренда H1
-            h1_bg_color = "#198754" if h1_trend_info['trend'] == "Тенденция вверх" else "#dc3545"
-            fig.add_annotation(
-                text=h1_trend_info['trend'],
-                xref="paper", yref="paper",
-                x=0.99, y=0.90, xanchor="right", yanchor="top",
-                showarrow=False,
-                font=dict(size=14, color="white", weight="bold"),
-                bgcolor=h1_bg_color, bordercolor="black", borderwidth=1,
-                borderpad=6, opacity=0.9
+        breakouts = analyze_manual_zigzag(manual_pts, df_chart)
+        
+        # Наносим плашки для каждого пробоя
+        for brk in breakouts:
+            # Плашка тренда
+            bg_color = "#198754" if brk['trend'] == "up" else "#dc3545"
+            trend_label = "Тенденция вверх" if brk['trend'] == "up" else "Тенденция вниз"
+            
+            # Текст с метриками
+            metrics_text = (
+                f"Δ: {brk['delta']:.{decimals}f}<br>"
+                f"Бар: {brk['bars']}<br>"
+                f"Vol: {brk['volume']:,.0f}"
             )
             
-            # Текст с метриками на линии (около точки D)
-            metrics_text = (
-                f"Δ: {h1_trend_info['price_diff']:.{decimals}f}<br>"
-                f"Баров: {h1_trend_info['bars']}<br>"
-                f"Vol: {h1_trend_info['volume']:,.0f}"
-            )
+            # Аннотация у пика
             fig.add_annotation(
-                x=h1_trend_info['d_time'], y=h1_trend_info['d_price'],
+                x=brk['peak_time'], y=brk['peak_price'],
                 text=metrics_text,
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="red",
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor=bg_color,
                 ax=40, ay=-40, # Смещение вправо и вверх
                 bgcolor="rgba(255, 255, 255, 0.8)", 
                 font=dict(color="black", size=10),
-                bordercolor="red", borderwidth=1, borderpad=3,
+                bordercolor=bg_color, borderwidth=1, borderpad=3,
                 row=1, col=1
             )
 
@@ -402,7 +418,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         row=2, col=1
     )
     
-    return fig, h1_trend_info
+    return fig, breakouts
 
 def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
     key = lambda n: f"deal_{ticker}_{n}"
@@ -570,7 +586,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                 is_h1 = (tf_name == "H1")
                 is_m10 = (tf_name == "M10")
                 
-                fig, h1_trend_info = draw_chart(
+                fig, breakouts = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
                     is_intraday=cfg["is_intraday"],
@@ -636,15 +652,35 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                         else:
                             st.plotly_chart(fig, use_container_width=True)
                             
-                        # Вывод панели с метриками, если есть подтвержденный тренд
-                        if h1_trend_info:
+                        # Панель метрик (сводная таблица)
+                        if breakouts:
                             st.markdown("---")
-                            st.markdown(f"#### 📈 Анализ структуры H1 ({h1_trend_info['trend']})")
-                            c1, c2, c3, c4 = st.columns(4)
-                            c1.metric("Пробой от уровня B", f"{h1_trend_info['price_diff']:,.{decimals}f}")
-                            c2.metric("Пройдено баров", f"{h1_trend_info['bars']}")
-                            c3.metric("Объем за пробой", f"{h1_trend_info['volume']:,.0f}")
-                            c4.metric("От уровня B", f"{h1_trend_info['b_price']:,.{decimals}f}")
+                            st.markdown("#### 📈 Анализ пробоев структуры H1")
+                            
+                            # Формируем красивую таблицу для вывода
+                            df_metrics = pd.DataFrame([
+                                {
+                                    "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
+                                    "Уровень сопротивления": b["resistance_price"],
+                                    "Пик (D)": b["peak_price"],
+                                    "Δ (пункты)": b["delta"],
+                                    "Баров от пробоя": b["bars"],
+                                    "Объем": b["volume"]
+                                }
+                                for b in breakouts
+                            ])
+                            
+                            st.dataframe(
+                                df_metrics, 
+                                use_container_width=True, 
+                                hide_index=True,
+                                column_config={
+                                    "Уровень сопротивления": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Пик (D)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Δ (пункты)": st.column_config.NumberColumn(format=f"%.{decimals}f"),
+                                    "Объем": st.column_config.NumberColumn(format="%d")
+                                }
+                            )
                     else:
                         st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
