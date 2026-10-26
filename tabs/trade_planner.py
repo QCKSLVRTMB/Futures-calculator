@@ -10,7 +10,7 @@ from data import vlookup, to_float, get_margin, fetch_moex_candles, load_trend_c
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False},
     "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True},
-    "M10": {"interval": 10, "days_back": 30,  "is_intraday": True}, # Увеличили days_back
+    "M10": {"interval": 10, "days_back": 30,  "is_intraday": True},
 }
 
 def _div(a, b, default=0.0):
@@ -566,57 +566,70 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
-    active_tool = st.radio(
-        "Выберите инструмент для рисования", 
-        ["Нет", "D1: Канал", "D1: Уровень 1/2", "H1: Тенденция", "H1: Уровень 1/2", "M10: Зигзаг"],
-        horizontal=True, key=key("active_tool")
-    )
-
-    tool_map = {
-        "D1: Канал": ("d1_chan", 3),
-        "D1: Уровень 1/2": ("d1_fib", 2),
-        "H1: Тенденция": ("h1_tend", None),
-        "H1: Уровень 1/2": ("h1_fib", 2),
-        "M10: Зигзаг": ("m10_zig", None)
-    }
-    
-    if active_tool != "Нет":
-        active_k, max_pts = tool_map[active_tool]
-        active_skey = pts_keys[active_k]
-        active_undo = f"undo_{active_k}_{ticker}"
-        active_redo = f"redo_{active_k}_{ticker}"
-        active_deb = f"debounce_{active_k}_{ticker}"
-
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col1:
-            if st.button("Отменить", key=f"undo_btn_{active_k}_{ticker}"):
-                if len(st.session_state[active_undo]) > 0:
-                    prev = st.session_state[active_undo].pop()
-                    st.session_state[active_redo].append(st.session_state[active_skey].copy())
-                    st.session_state[active_skey] = prev
-                    st.session_state[active_deb] = 0.0
-                    st.rerun()
-        with col2:
-            if st.button("Повторить", key=f"redo_btn_{active_k}_{ticker}"):
-                if len(st.session_state[active_redo]) > 0:
-                    nxt = st.session_state[active_redo].pop()
-                    st.session_state[active_undo].append(st.session_state[active_skey].copy())
-                    st.session_state[active_skey] = nxt
-                    st.session_state[active_deb] = 0.0
-                    st.rerun()
-        with col3:
-            if st.button("Очистить", key=f"clear_btn_{active_k}_{ticker}"):
-                st.session_state[active_undo].append(st.session_state[active_skey].copy())
-                st.session_state[active_redo] = []
-                st.session_state[active_skey] = []
-                st.session_state[active_deb] = 0.0
-                st.rerun()
-
     st.markdown("#### Графики рынка (MOEX ISS)")
     chart_tabs = st.tabs(["D1 (Дни)", "H1 (Часы)", "M10 (10 минут)"])
 
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
         with tab:
+            is_d1 = (tf_name == "D1")
+            is_h1 = (tf_name == "H1")
+            is_m10 = (tf_name == "M10")
+
+            # Выбор инструмента ВНУТРИ вкладки
+            if is_d1:
+                active_tool = st.radio(
+                    "Выберите инструмент для рисования (D1)", 
+                    ["Нет", "D1: Канал", "D1: Уровень 1/2"],
+                    horizontal=True, key=key("active_tool_d1")
+                )
+                active_k = "d1_chan" if active_tool == "D1: Канал" else ("d1_fib" if active_tool == "D1: Уровень 1/2" else None)
+            elif is_h1:
+                active_tool = st.radio(
+                    "Выберите инструмент для рисования (H1)", 
+                    ["Нет", "H1: Тенденция", "H1: Уровень 1/2"],
+                    horizontal=True, key=key("active_tool_h1")
+                )
+                active_k = "h1_tend" if active_tool == "H1: Тенденция" else ("h1_fib" if active_tool == "H1: Уровень 1/2" else None)
+            else:
+                active_tool = st.radio(
+                    "Выберите инструмент для рисования (M10)", 
+                    ["Нет", "M10: Зигзаг"],
+                    horizontal=True, key=key("active_tool_m10")
+                )
+                active_k = "m10_zig" if active_tool == "M10: Зигзаг" else None
+
+            if active_k:
+                max_pts = 3 if active_k == "d1_chan" else (2 if "fib" in active_k else None)
+                active_skey = pts_keys[active_k]
+                active_undo = f"undo_{active_k}_{ticker}"
+                active_redo = f"redo_{active_k}_{ticker}"
+                active_deb = f"debounce_{active_k}_{ticker}"
+
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col1:
+                    if st.button("Отменить", key=f"undo_btn_{active_k}_{ticker}"):
+                        if len(st.session_state[active_undo]) > 0:
+                            prev = st.session_state[active_undo].pop()
+                            st.session_state[active_redo].append(st.session_state[active_skey].copy())
+                            st.session_state[active_skey] = prev
+                            st.session_state[active_deb] = 0.0
+                            st.rerun()
+                with col2:
+                    if st.button("Повторить", key=f"redo_btn_{active_k}_{ticker}"):
+                        if len(st.session_state[active_redo]) > 0:
+                            nxt = st.session_state[active_redo].pop()
+                            st.session_state[active_undo].append(st.session_state[active_skey].copy())
+                            st.session_state[active_skey] = nxt
+                            st.session_state[active_deb] = 0.0
+                            st.rerun()
+                with col3:
+                    if st.button("Очистить", key=f"clear_btn_{active_k}_{ticker}"):
+                        st.session_state[active_undo].append(st.session_state[active_skey].copy())
+                        st.session_state[active_redo] = []
+                        st.session_state[active_skey] = []
+                        st.session_state[active_deb] = 0.0
+                        st.rerun()
+
             df_candles = fetch_moex_candles(
                 ticker,
                 interval=cfg["interval"],
@@ -636,10 +649,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
-                is_d1 = (tf_name == "D1")
-                is_h1 = (tf_name == "H1")
-                is_m10 = (tf_name == "M10")
-                
                 d1_fib = st.session_state.get(pts_keys["d1_fib"], [])
                 h1_fib = st.session_state.get(pts_keys["h1_fib"], [])
                 m10_zig = st.session_state.get(pts_keys["m10_zig"], [])
@@ -663,7 +672,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
                 )
                 
                 if fig:
-                    if active_tool != "Нет":
+                    if active_k:
                         event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_{tf_name}")
                         
                         now = time.time()
