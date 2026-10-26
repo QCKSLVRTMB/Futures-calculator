@@ -2,14 +2,16 @@ import pandas as pd
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
+import json
+import os
 
 # ВАЖНО: Замените на ваш ID таблицы и GID вкладок!
 SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ_ИЗ_ССЫЛКИ"
 GIDS = {
-    "API": "0",         # Замените на реальный gid
-    "MARKETDATA": "0",  # Замените на реальный gid
-    "ГО": "0",          # Замените на реальный gid
-    "Списки": "0",      # Замените на реальный gid
+    "API": "0",
+    "MARKETDATA": "0",
+    "ГО": "0",
+    "Списки": "0",
 }
 
 MARGIN_COL_MAP = {
@@ -76,7 +78,7 @@ SEC_COLS = {
     "LOTSIZE": ["LOTSIZE"], "MINSTEP": ["MINSTEP"], "STEPPRICE": ["STEPPRICE"],
     "LASTTRADEDATE": ["LASTTRADEDATE"], "INITIALMARGIN": ["INITIALMARGIN"],
     "PREVPRICE": ["PREVPRICE"], "PREVSETTLEPRICE": ["PREVSETTLEPRICE"], 
-    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"], # <-- Добавлено
+    "BUYSELLFEE": ["BUYSELLFEE"], "DECIMALS": ["DECIMALS"],
 }
 
 MKT_COLS = {
@@ -116,11 +118,9 @@ def fetch_moex_forts() -> pd.DataFrame:
 
     df = sec.merge(mkt, on="SECID", how="left")
 
-    # Добавлен "DECIMALS" в числовые колонки
     numeric_cols = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW",
                     "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE",
-                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"] 
-    
+                    "PREVSETTLEPRICE", "LOTSIZE", "LOTVOLUME", "DECIMALS"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -189,3 +189,46 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
     df = df.set_index("Date").sort_index()
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     return df
+
+
+# ==========================================
+# 4. СОХРАНЕНИЕ И ЗАГРУЗКА ТЕХНИЧЕСКОЙ АНАЛИТИКИ (JSON)
+# ==========================================
+CACHE_FILE = "trend_cache.json"
+
+def load_trend_cache() -> dict:
+    """Загружает кэш из JSON-файла."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_trend_cache(ticker: str, data_dict: dict):
+    """Сохраняет данные конкретного тикера в JSON-файл."""
+    cache = load_trend_cache()
+    cache[ticker] = data_dict
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"Не удалось сохранить кэш: {e}")
+
+def export_cache_to_string() -> str:
+    """Возвращает весь кэш в виде отформатированной JSON-строки."""
+    cache = load_trend_cache()
+    return json.dumps(cache, ensure_ascii=False, indent=4)
+
+def import_cache_from_string(json_str: str) -> bool:
+    """Импортирует кэш из JSON-строки и сохраняет в файл."""
+    try:
+        data = json.loads(json_str)
+        if not isinstance(data, dict):
+            return False
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception:
+        return False
