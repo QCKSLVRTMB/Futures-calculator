@@ -280,7 +280,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             name='Зигзаг (M10)'
         ), row=1, col=1)
 
-    # 6. RR Zones based on H1 Tendency (Работает на всех ТФ)
     if show_rr and h1_tend_pts and len(h1_tend_pts) >= 2:
         if strategy == "Зигзаг тенденции":
             t_c, p_c = h1_tend_pts[-2]
@@ -577,9 +576,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
 
     step_price = to_float(vlookup(api_df, ticker, 6)) or 10.0
     step_cost = to_float(vlookup(api_df, ticker, 17)) or 16.2
-    pv = _div(step_cost, step_price)
-
-    direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
+    multiplier = _div(step_cost, step_price)
 
     cache = load_trend_cache()
     ticker_cache = cache.get(ticker, {})
@@ -636,8 +633,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
         c2.metric("Точка 2", val_b)
         c3.metric("Точка 3", val_c)
         c4.metric("Точка 4", val_d)
-
-    all_filled = all(x is not None for x in [p_a, p_b, p_c, p_d])
 
     st.markdown("#### Графики рынка (MOEX ISS)")
 
@@ -883,6 +878,131 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
+    # ========== КАЛЬКУЛЯТОР СДЕЛКИ ==========
+    st.markdown("---")
+    st.markdown("## Калькулятор сделки")
+
+    # 1. Направление торговли
+    direction = st.radio("Направление торговли", ["LONG", "SHORT"], horizontal=True, key=key("dir"))
+
+    # 2. Тип сделки (трендовая / контртрендовая)
+    h1_trend_dir = None
+    if len(h1_pts) >= 2:
+        last_move = h1_pts[-1][1] - h1_pts[-2][1]
+        if last_move > 0:
+            h1_trend_dir = "up"
+        elif last_move < 0:
+            h1_trend_dir = "down"
+
+    if h1_trend_dir is None:
+        st.info("📊 Нарисуйте минимум 2 точки H1: Тенденции для определения тренда")
+    else:
+        is_trend_trade = (h1_trend_dir == "up" and direction == "LONG") or \
+                         (h1_trend_dir == "down" and direction == "SHORT")
+        
+        if is_trend_trade:
+            st.success(f"### 🟢 Трендовая сделка ({direction})")
+        else:
+            st.error(f"### 🔴 Контртрендовая сделка ({direction})")
+
+    # 3. Точки входа
+    st.markdown("### Точки входа")
+    
+    entries_raw_key = key("entries_raw")
+    if entries_raw_key not in st.session_state:
+        st.session_state[entries_raw_key] = pd.DataFrame({
+            "Цена входа": [float(market)],
+            "Контрактов": [1],
+        })
+
+    df_for_editor = st.session_state[entries_raw_key].copy()
+    df_for_editor["Цена входа"] = df_for_editor["Цена входа"].fillna(0.0)
+    df_for_editor["Контрактов"] = df_for_editor["Контрактов"].fillna(0)
+    df_for_editor["Стоимость позиции"] = df_for_editor["Цена входа"] * df_for_editor["Контрактов"] * multiplier
+    df_for_editor["ГО в ₽"] = df_for_editor["Контрактов"] * margin_per_contract
+    df_for_editor["ГО в %"] = (df_for_editor["ГО в ₽"] / deposit * 100) if deposit > 0 else 0.0
+
+    edited_entries = st.data_editor(
+        df_for_editor,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Цена входа": st.column_config.NumberColumn(format=f"%.{decimals}f", min_value=0.0),
+            "Контрактов": st.column_config.NumberColumn(min_value=0, step=1),
+            "Стоимость позиции": st.column_config.NumberColumn(format="%.0f ₽", disabled=True),
+            "ГО в ₽": st.column_config.NumberColumn(format="%.0f ₽", disabled=True),
+            "ГО в %": st.column_config.NumberColumn(format="%.2f%%", disabled=True),
+        },
+        key=key("entries_editor")
+    )
+    st.session_state[entries_raw_key] = edited_entries[["Цена входа", "Контрактов"]].copy()
+
+    valid_entries = edited_entries[(edited_entries["Цена входа"] > 0) & (edited_entries["Контрактов"] > 0)]
+
+    if valid_entries.empty:
+        st.warning("Добавьте хотя бы одну точку входа (цена > 0 и контрактов > 0)")
+    else:
+        total_contracts = int(valid_entries["Контрактов"].sum())
+        avg_entry = (valid_entries["Цена входа"] * valid_entries["Контрактов"]).sum() / total_contracts
+        margin_used = total_contracts * margin_per_contract
+        margin_pct = _div(margin_used, deposit) * 100
+        position_value = avg_entry * multiplier * total_contracts
+
+        # 4. SL и TP
+        st.markdown("### Уровни SL и TP")
+        col_sl, col_tp = st.columns(2)
+        sl_price = col_sl.number_input(
+            "SL (Стоп-лосс)",
+            value=float(market),
+            step=float(step_price),
+            key=key("sl_price"),
+            format=f"%.{decimals}f"
+        )
+        tp_price = col_tp.number_input(
+            "TP (Тейк-профит)",
+            value=float(market),
+            step=float(step_price),
+            key=key("tp_price"),
+            format=f"%.{decimals}f"
+        )
+
+        # 5. Расчёт прибыли и убытка
+        if direction == "LONG":
+            profit_per_contract = (tp_price - avg_entry) * multiplier
+            loss_per_contract = (avg_entry - sl_price) * multiplier
+        else:
+            profit_per_contract = (avg_entry - tp_price) * multiplier
+            loss_per_contract = (sl_price - avg_entry) * multiplier
+
+        total_profit = profit_per_contract * total_contracts
+        total_loss = loss_per_contract * total_contracts
+        actual_rr = _div(abs(total_profit), abs(total_loss)) if total_loss > 0 else 0
+
+        # 6. Результаты
+        st.markdown("### Результаты")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Средний вход", f"{avg_entry:,.{decimals}f}")
+        c2.metric("Всего контрактов", f"{total_contracts}")
+        c3.metric("Стоимость позиции", f"{position_value:,.0f} ₽")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("ГО в рублях", f"{margin_used:,.0f} ₽")
+        c2.metric("ГО от счета", f"{margin_pct:.2f}%")
+        c3.metric("ГО на контракт", f"{margin_per_contract:,.0f} ₽")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Убыток (SL)", f"−{abs(total_loss):,.0f} ₽")
+        c2.metric("Прибыль (TP)", f"+{abs(total_profit):,.0f} ₽")
+        c3.metric("RR факт", f"1:{actual_rr:.2f}" if actual_rr > 0 else "—")
+
+        if actual_rr > 0:
+            if actual_rr >= rr_ratio:
+                st.success(f"✅ RR соответствует норме (≥ 1:{rr_ratio})")
+            else:
+                st.warning(f"⚠️ RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
+
+    # ========== СОХРАНЕНИЕ В JSON ==========
     final_state = {
         "d1_manual_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_chan"], [])],
         "d1_fib_pts": [(str(t), float(p)) for t, p in st.session_state.get(pts_keys["d1_fib"], [])],
@@ -894,44 +1014,3 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, rr_ra
     
     if clean_state != ticker_cache:
         save_trend_cache(ticker, clean_state)
-
-    if not all_filled:
-        return
-
-    avg_entry = p_c
-    sl_price = p_a if direction == "LONG" else p_b
-    sl_points = abs(avg_entry - sl_price)
-
-    st.markdown("#### Параметры сделки")
-    p1, p2 = st.columns(2)
-    risk_pct = p1.number_input("Риск (в % от депозита)", min_value=0.1, max_value=100.0, value=1.0, step=0.1, key=key("risk_pct"))
-    
-    st.info(f"Risk Reward установлен в боковом меню: 1 к {rr_ratio}")
-
-    risk_budget = deposit * (risk_pct / 100)
-    tp_price = avg_entry + (sl_points * rr_ratio) if direction == "LONG" else avg_entry - (sl_points * rr_ratio)
-
-    st.info(f"Вход (C): **{avg_entry:,.2f}** | SL (A/B): **{sl_price:,.2f}** | TP: **{tp_price:,.2f}**")
-
-    max_contracts_by_risk = int(risk_budget / (sl_points * pv)) if pv > 0 else 0
-    if max_contracts_by_risk < 1:
-        st.error("Бюджет риска слишком мал для данной структуры.")
-        return
-
-    contracts = st.number_input("Количество контрактов", min_value=1, max_value=max_contracts_by_risk, value=max_contracts_by_risk, key=key("contracts"))
-    margin_used = contracts * margin_per_contract
-
-    st.markdown("---")
-    st.markdown("#### Итоги расчета")
-    profit_rub = abs(tp_price - avg_entry) * pv * contracts
-    loss_rub = abs(avg_entry - sl_price) * pv * contracts
-    cur_pnl = (market - avg_entry) * pv * contracts if direction == "LONG" else (avg_entry - market) * pv * contracts
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Занятое ГО", f"{margin_used:,.0f} ₽")
-    c2.metric("Убыток (SL)", f"−{loss_rub:,.0f} ₽")
-    c3.metric("Прибыль (TP)", f"+{profit_rub:,.0f} ₽")
-
-    c1, c2 = st.columns(2)
-    c1.metric("Текущий P/L (от рынка)", f"{cur_pnl:+,.0f} ₽")
-    c2.metric("Доля депозита", f"{_div(margin_used, deposit)*100:.2f}%")
