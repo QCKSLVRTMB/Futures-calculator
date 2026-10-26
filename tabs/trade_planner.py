@@ -113,7 +113,7 @@ def get_sperandeo_geometry(df, trend_direction):
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
     if df_period.empty:
-        return 0, 0
+        return 0, 0, start_time, resistance_price
         
     if is_up:
         breakout_bars = df_period[df_period['High'] > resistance_price]
@@ -122,11 +122,13 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
         
     if not breakout_bars.empty:
         breakout_time = breakout_bars.index[0]
+        breakout_price = float(breakout_bars.iloc[0]['High'] if is_up else breakout_bars.iloc[0]['Low'])
     else:
         breakout_time = start_time
+        breakout_price = resistance_price
         
     df_active = df.loc[breakout_time:end_time]
-    return len(df_active), df_active['Volume'].sum()
+    return len(df_active), df_active['Volume'].sum(), breakout_time, breakout_price
 
 def analyze_manual_zigzag(pts, df):
     if len(pts) < 4:
@@ -141,23 +143,29 @@ def analyze_manual_zigzag(pts, df):
         d_time, d_price = p_d
         
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
-            bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
+            bars, vol, brk_time, brk_price = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             breakouts.append({
                 "trend": "up",
+                "resistance_time": b_time,
                 "resistance_price": b_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
+                "breakout_time": brk_time,
+                "breakout_price": brk_price,
                 "delta": d_price - b_price,
                 "bars": bars,
                 "volume": vol
             })
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
-            bars, vol = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
+            bars, vol, brk_time, brk_price = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             breakouts.append({
                 "trend": "down",
+                "resistance_time": b_time,
                 "resistance_price": b_price,
                 "peak_time": d_time,
                 "peak_price": d_price,
+                "breakout_time": brk_time,
+                "breakout_price": brk_price,
                 "delta": b_price - d_price,
                 "bars": bars,
                 "volume": vol
@@ -227,6 +235,7 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 f"Vol: {brk['volume']:,.0f}"
             )
             
+            # Плашка у пика (D, F, H)
             fig.add_annotation(
                 x=brk['peak_time'], y=brk['peak_price'],
                 text=metrics_text,
@@ -236,6 +245,26 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                 font=dict(color="black", size=10),
                 bordercolor=bg_color, borderwidth=1, borderpad=3,
                 row=1, col=1
+            )
+            
+            # Плашка у сопротивления (B, D, F)
+            fig.add_annotation(
+                x=brk['resistance_time'], y=brk['resistance_price'],
+                text=metrics_text,
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1, arrowcolor="gray",
+                ax=-40, ay=40,
+                bgcolor="rgba(255, 255, 255, 0.8)", 
+                font=dict(color="black", size=10),
+                bordercolor="gray", borderwidth=1, borderpad=3,
+                row=1, col=1
+            )
+
+            # Оранжевый пунктирный отрезок от сопротивления до момента пробоя
+            fig.add_shape(
+                type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], 
+                x1=brk['breakout_time'], y1=brk['breakout_price'],
+                line=dict(color="orange", width=2, dash="dash"), 
+                xref="x", yref="y", row=1, col=1
             )
 
     if 'Volume' in df_chart.columns:
@@ -623,7 +652,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                         if draw_mode:
                             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key=f"plot_{ticker}_H1")
                             
-                            # DEBOUNCE: обрабатываем событие только если прошло >0.5 сек с прошлого
                             now = time.time()
                             last_debounce = st.session_state.get(debounce_key, 0.0)
                             
@@ -641,7 +669,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                 pts = st.session_state[pts_key]
                                 new_pts = pts.copy()
                                 
-                                # ПРИОРИТЕТ 1: Повторный клик
                                 if new_pts and new_pts[-1][0] == bar.name:
                                     last_y = new_pts[-1][1]
                                     if np.isclose(last_y, bar['High']):
@@ -650,7 +677,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                         snapped_y = float(bar['High'])
                                     new_pts[-1] = (bar.name, snapped_y)
                                     
-                                # ПРИОРИТЕТ 2: Первая точка
                                 elif not new_pts:
                                     current_price = df_h1_view.iloc[-1]['Close']
                                     clicked_bar_mid = (bar['High'] + bar['Low']) / 2
@@ -662,7 +688,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                         
                                     new_pts.append((bar.name, snapped_y))
                                     
-                                # ПРИОРИТЕТ 3: Вторая точка
                                 elif len(new_pts) == 1:
                                     if clicked_y > new_pts[0][1]:
                                         snapped_y = float(bar['High'])
@@ -670,7 +695,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
                                         snapped_y = float(bar['Low'])
                                     new_pts.append((bar.name, snapped_y))
                                     
-                                # ПРИОРИТЕТ 4: Третья+ точка
                                 else:
                                     last_time, last_y = new_pts[-1]
                                     last_bar = df_h1_view.loc[last_time]
@@ -723,7 +747,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             except Exception as e:
                 st.error(f"Не удалось отрисовать график {tf_name}: {e}")
 
-    # --- СОХРАНЕНИЕ ВСЕГО КЭША В КОНЦЕ ЦИКЛА РЕНДЕРА ---
     current_pts = st.session_state.get(pts_key, [])
     serializable_pts = [(str(t), float(p)) for t, p in current_pts]
     
