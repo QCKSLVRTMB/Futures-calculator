@@ -668,6 +668,9 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             df_view = df_candles.tail(150).copy()
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             
+                            pts = st.session_state[active_skey]
+                            new_pts = pts.copy()
+
                             # === МАГНИТ К ЭКСТРЕМУМАМ ===
                             window = 5
                             start_idx = max(0, idx - window)
@@ -676,7 +679,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             
                             bar = df_view.iloc[idx]
                             
-                            # Определяем тип экстремума (Low или High)
                             if active_k == "d1_chan":
                                 if len(new_pts) == 0:
                                     is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
@@ -702,9 +704,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             
                             bar = df_view.loc[snapped_time]
                             # =============================
-
-                            pts = st.session_state[active_skey]
-                            new_pts = pts.copy()
 
                             same_bar_last = (
                                 bool(new_pts)
