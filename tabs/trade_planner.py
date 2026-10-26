@@ -51,7 +51,6 @@ def detect_trend(df):
     return "Боковик"
 
 def get_zigzag_pivots(df, deviation_pct=0.05):
-    """Находит крупные свинги на основе заданного процента отклонения."""
     pivots = []
     if len(df) < 2: return pivots
     
@@ -93,7 +92,6 @@ def get_zigzag_pivots(df, deviation_pct=0.05):
     return pivots
 
 def get_auto_sperandeo_channel(pivots, trend_direction):
-    """Формирует точки для канала (P1, P2, P3) на основе свингов."""
     if len(pivots) < 3:
         return None
 
@@ -129,7 +127,6 @@ def get_auto_sperandeo_channel(pivots, trend_direction):
     return None
 
 def get_sperandeo_annotations_data(df, trend_direction, deviation_pct, decimals=0):
-    """Возвращает список координат для плашек (экстремумов), найденных на D1."""
     if len(df) < 10:
         return []
 
@@ -162,7 +159,6 @@ def get_sperandeo_annotations_data(df, trend_direction, deviation_pct, decimals=
                 if l2[2] < l1[2] and h2[2] < h1[2]:
                     annotations.extend([l1, h1, l2])
 
-    # Удаляем дубликаты и сортируем
     seen = set()
     unique = []
     for a in annotations:
@@ -210,7 +206,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
         fig.add_trace(go.Bar(x=df_chart.index, y=df_chart['Volume'],
                              marker_color=colors, name='Объем'), row=2, col=1)
 
-    # --- ПЛАШКА ТРЕНДА ---
     if trend_text:
         if trend_text == "Тренд вверх":
             bg_color, font_color = "#198754", "white"
@@ -228,7 +223,6 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
             borderpad=6, opacity=0.9
         )
 
-    # --- ПЛАШКИ ЭКСТРЕМУМОВ (привязка к датам) ---
     if annotations_data:
         fmt = f",.{decimals}f"
         for idx, typ, val in annotations_data:
@@ -246,46 +240,46 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
                     bordercolor="black", borderwidth=1, borderpad=3, opacity=0.85, row=1, col=1
                 )
 
-    # --- ЛУЧИ КАНАЛА (привязка к датам и времени) ---
     if channel_data:
         try:
             x1, y1 = channel_data['p1']
             x2, y2 = channel_data['p2']
             x3, y3 = channel_data['p3']
             
-            # Рассчитываем наклон в пространстве Unix timestamp (секунды)
-            time1 = pd.to_datetime(x1).timestamp()
-            time2 = pd.to_datetime(x2).timestamp()
-            time3 = pd.to_datetime(x3).timestamp()
+            # Приводим к единому типу pd.Timestamp
+            x1_ts = pd.to_datetime(x1)
+            x2_ts = pd.to_datetime(x2)
+            x3_ts = pd.to_datetime(x3)
+            
+            time1 = x1_ts.timestamp()
+            time2 = x2_ts.timestamp()
+            time3 = x3_ts.timestamp()
             
             dt_12 = time2 - time1 if time2 != time1 else 1
             slope_time = (y2 - y1) / dt_12
             
-            # Определяем, насколько далеко продлить луч вправо (на 20 баров текущего таймфрейма)
-            if len(df_chart) > 1:
-                avg_delta = (df_chart.index[-1] - df_chart.index[0]) / max(1, len(df_chart) - 1)
-                dt_end = df_chart.index[-1] + avg_delta * 20
-                time_end = dt_end.timestamp()
-            else:
-                dt_end = df_chart.index[-1]
-                time_end = dt_end.timestamp()
-
-            # Вычисляем конечные Y для обоих лучей
-            y_ray1_end = slope_time * (time_end - time1) + y1
-            y_ray2_end = slope_time * (time_end - time3) + y3
+            # Конец луча: 10 дней вперед от последнего бара
+            dt_end = df_chart.index[-1] + pd.Timedelta(days=10)
+            
+            # Генерируем точки с часовым шагом, чтобы Plotly корректно отрисовал линию
+            # сквозь скрытые периоды (rangebreaks: ночи и выходные)
+            line_dates = pd.date_range(start=x1_ts, end=dt_end, freq='h')
+            
+            y_ray1 = [slope_time * (t.timestamp() - time1) + y1 for t in line_dates]
+            y_ray2 = [slope_time * (t.timestamp() - time3) + y3 for t in line_dates]
 
             fig.add_trace(go.Scatter(
-                x=[pd.to_datetime(x1), dt_end], y=[y1, y_ray1_end], 
+                x=line_dates, y=y_ray1, 
                 mode='lines', name='Линия тренда', line=dict(color='blue', width=2)
             ), row=1, col=1)
             
             fig.add_trace(go.Scatter(
-                x=[pd.to_datetime(x3), dt_end], y=[y3, y_ray2_end], 
+                x=line_dates, y=y_ray2, 
                 mode='lines', name='Граница канала', line=dict(color='blue', width=2)
             ), row=1, col=1)
             
         except Exception as e:
-            pass
+            st.error(f"Ошибка отрисовки канала: {e}")
 
     fig.update_layout(
         title=title, height=700,
@@ -299,9 +293,9 @@ def draw_chart(df_chart, p_a, p_b, p_c, p_d, title="", is_intraday=False, decima
     if is_intraday:
         rangebreaks.append(dict(bounds=[23.833, 7], pattern="hour"))
 
+    # Устанавливаем диапазон оси X (включая будущие 10 дней для лучей)
     if len(df_chart) > 1:
-        avg_delta = (df_chart.index[-1] - df_chart.index[0]) / max(1, len(df_chart) - 1)
-        x_range = [df_chart.index[0] - avg_delta, df_chart.index[-1] + avg_delta * 20]
+        x_range = [df_chart.index[0] - pd.Timedelta(days=1), df_chart.index[-1] + pd.Timedelta(days=10)]
     else:
         x_range = None
 
@@ -405,7 +399,6 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit):
             st.caption(f"Последняя свеча: **{last_ts.strftime('%d.%m.%Y %H:%M')}**  ·  Свечей: {len(df_candles)}")
 
             try:
-                # Передаем найденные на D1 точки (annotations_data и channel_data) во все ТФ
                 fig = draw_chart(
                     df_candles, p_a, p_b, p_c, p_d,
                     title=f"{ticker} — {tf_name}",
