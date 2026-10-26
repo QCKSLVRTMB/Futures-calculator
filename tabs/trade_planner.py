@@ -16,6 +16,17 @@ INTERVALS = {
 def _div(a, b, default=0.0):
     return a / b if b else default
 
+def fmt_ru(value, decimals=2, suffix=""):
+    """Форматирует число в русском стиле: пробел для тысяч, запятая для копеек."""
+    if value is None:
+        return "—"
+    try:
+        formatted = f"{value:,.{decimals}f}"
+        formatted = formatted.replace(",", "_T_").replace(".", ",").replace("_T_", " ")
+        return f"{formatted}{suffix}"
+    except Exception:
+        return str(value)
+
 def calc_commission(price, multiplier, tariff):
     notional = price * multiplier
     if tariff == "Т-Инвестиции":
@@ -153,7 +164,6 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # --- УРОВНИ ПОКУПАТЕЛЯ/ПРОДАВЦА + ПЛАШКИ НА ШКАЛЕ ---
     if show_levels and h1_levels:
         for lvl in h1_levels:
             try:
@@ -171,14 +181,12 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     label_bg = "rgba(255, 105, 180, 0.95)"
                     label_fg = "black"
 
-                # Зона от начала бара до правого края
                 fig.add_shape(
                     type="rect", x0=t_start, x1=dt_end, y0=y_bottom, y1=y_top,
                     fillcolor=zone_color, line=dict(width=0),
                     layer="below", xref="x", yref="y", row=1, col=1
                 )
 
-                # Плашка на ВЕРХНЕЙ границе (уменьшенный размер)
                 fig.add_annotation(
                     x=0.99, y=y_top,
                     xref="x domain", yref="y",
@@ -186,11 +194,10 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     showarrow=False,
                     xanchor="right", yanchor="middle",
                     bgcolor=label_bg,
-                    font=dict(color=label_fg, size=9, weight="bold"), # Шрифт меньше
-                    bordercolor="black", borderwidth=1, borderpad=1, # Отступы меньше
+                    font=dict(color=label_fg, size=9, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=1,
                 )
 
-                # Плашка на НИЖНЕЙ границе (уменьшенный размер)
                 fig.add_annotation(
                     x=0.99, y=y_bottom,
                     xref="x domain", yref="y",
@@ -198,8 +205,8 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
                     showarrow=False,
                     xanchor="right", yanchor="middle",
                     bgcolor=label_bg,
-                    font=dict(color=label_fg, size=9, weight="bold"), # Шрифт меньше
-                    bordercolor="black", borderwidth=1, borderpad=1, # Отступы меньше
+                    font=dict(color=label_fg, size=9, weight="bold"),
+                    bordercolor="black", borderwidth=1, borderpad=1,
                 )
             except Exception:
                 continue
@@ -681,33 +688,33 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
         st.markdown("### Результаты")
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Средний вход", f"{avg_entry:,.{decimals}f}")
+        c1.metric("Средний вход", fmt_ru(avg_entry, decimals))
         c2.metric("Всего контрактов", f"{total_contracts}")
-        c3.metric("Стоимость позиции", f"{position_value:,.2f} ₽")
-        c4.metric("Плечо", f"{leverage:.1f}x")
+        c3.metric("Стоимость позиции", fmt_ru(position_value, 2, " ₽"))
+        c4.metric("Плечо", fmt_ru(leverage, 1, "x"))
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("ГО в рублях", f"{margin_used:,.2f} ₽")
-        c2.metric("ГО от счета", f"{margin_pct:.2f}%")
-        c3.metric("Комиссия (вход+выход)", f"{total_comm_entry + total_comm_sl:,.2f} ₽")
+        c1.metric("ГО в рублях", fmt_ru(margin_used, 2, " ₽"))
+        c2.metric("ГО от счета", fmt_ru(margin_pct, 2, "%"))
+        c3.metric("Комиссия (вход+выход)", fmt_ru(total_comm_entry + total_comm_sl, 2, " ₽"))
         c4.metric("Макс. контрактов", f"{max_contracts_by_risk}")
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Чистый убыток (SL)", f"−{abs(net_loss):,.2f} ₽")
-        c2.metric("Чистая прибыль (TP)", f"+{abs(net_profit):,.2f} ₽")
-        c3.metric("RR факт", f"1:{actual_rr:.2f}" if actual_rr > 0 else "—")
-        c4.metric("Бюджет риска", f"{risk_budget:,.2f} ₽")
+        c1.metric("Чистый убыток (SL)", f"−{fmt_ru(abs(net_loss), 2, ' ₽')}")
+        c2.metric("Чистая прибыль (TP)", f"+{fmt_ru(abs(net_profit), 2, ' ₽')}")
+        c3.metric("RR факт", f"1:{fmt_ru(actual_rr, 2)}" if actual_rr > 0 else "—")
+        c4.metric("Бюджет риска", fmt_ru(risk_budget, 2, " ₽"))
 
         if abs(net_loss) > risk_budget:
-            st.error(f"⛔ **Превышен допустимый риск!** Убыток по стопу ({abs(net_loss):,.2f} ₽) больше бюджета риска ({risk_budget:,.2f} ₽). Сократите количество контрактов до {max_contracts_by_risk}.")
+            st.error(f"⛔ **Превышен допустимый риск!** Убыток по стопу ({fmt_ru(abs(net_loss), 2, ' ₽')}) больше бюджета риска ({fmt_ru(risk_budget, 2, ' ₽')}). Сократите количество контрактов до {max_contracts_by_risk}.")
         else:
-            st.success(f"✅ Риск в норме. Убыток ({abs(net_loss):,.2f} ₽) не превышает бюджет ({risk_budget:,.2f} ₽).")
+            st.success(f"✅ Риск в норме. Убыток ({fmt_ru(abs(net_loss), 2, ' ₽')}) не превышает бюджет ({fmt_ru(risk_budget, 2, ' ₽')}).")
 
         if actual_rr > 0:
             if actual_rr >= rr_ratio:
-                st.success(f"✅ RR соответствует норме (≥ 1:{rr_ratio})")
+                st.success(f"✅ RR соответствует норме (≥ 1:{fmt_ru(rr_ratio, 2)})")
             else:
-                st.warning(f"⚠️ RR ниже нормы (факт 1:{actual_rr:.2f}, требуется 1:{rr_ratio})")
+                st.warning(f"⚠️ RR ниже нормы (факт 1:{fmt_ru(actual_rr, 2)}, требуется 1:{fmt_ru(rr_ratio, 2)})")
 
     # ========== СОХРАНЕНИЕ В JSON ==========
     final_state = {
