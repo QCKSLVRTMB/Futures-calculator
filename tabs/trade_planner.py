@@ -109,7 +109,7 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
         name='Рынок'
     ), row=1, col=1)
 
-    # Канал D1: строго по кликам A, C, B
+    # Канал D1: строго по кликам A, C, B (A и C — база, B — параллель)
     if d1_pts and len(d1_pts) == 3:
         t_A, p_A = d1_pts[0]
         t_C, p_C = d1_pts[1]
@@ -144,11 +144,17 @@ def draw_chart(df_chart, title="", is_intraday=False, decimals=0, is_h1=False, i
             line=dict(color="blue", width=2), xref="x", yref="y", row=1, col=1
         )
 
+        # Сортируем точки для красивого отображения подписей A, B, C
+        sorted_plot_pts = sorted([(t_A, p_A, "A"), (t_B, p_B, "B"), (t_C, p_C, "C")], key=lambda x: x[0])
+        px = [p[0] for p in sorted_plot_pts]
+        py = [p[1] for p in sorted_plot_pts]
+        ptext = [p[2] for p in sorted_plot_pts]
+
         fig.add_trace(go.Scatter(
-            x=[t_A, t_C, t_B], y=[p_A, p_C, p_B],
+            x=px, y=py,
             mode='markers+text',
             marker=dict(color='blue', size=12),
-            text=["A", "C", "B"], textposition="top center",
+            text=ptext, textposition="top center",
             textfont=dict(color="blue", size=12),
             name='Точки канала D1', showlegend=False
         ), row=1, col=1)
@@ -576,15 +582,15 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                 pts_now = []
             if len(pts_now) == 0:
                 st.caption(
-                    "🖱️ **Точка A**: кликните на первом LOW (для восходящего) или HIGH (для нисходящего)."
+                    "🖱️ **Точка A (1/3)**: кликните на первом экстремуме (для восходящего — Low, для нисходящего — High)."
                 )
             elif len(pts_now) == 1:
                 st.caption(
-                    "🖱️ **Точка C**: кликните на втором LOW (или HIGH) — это будет вторая опорная точка канала."
+                    "🖱️ **Точка C (2/3)**: кликните на втором экстремуме того же типа (второй Low или второй High)."
                 )
             elif len(pts_now) == 2:
                 st.caption(
-                    "🖱️ **Точка B**: кликните на противоположном экстремуме (HIGH для восходящего, LOW для нисходящего) между A и C."
+                    "🖱️ **Точка B (3/3)**: кликните на противоположном экстремуме (High для восходящего или Low для нисходящего)."
                 )
         elif active_k in ("h1_zig", "d1_fib", "h1_fib"):
             pts_now = st.session_state.get(active_skey, [])
@@ -592,8 +598,7 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                 pts_now = []
             if len(pts_now) == 0:
                 st.caption(
-                    "🖱️ **Первая точка**: клик ближе к вершине бара → **High**, ближе к основанию → **Low**. "
-                    "(Программа ищет экстремум в радиусе ±3 бара)"
+                    "🖱️ **Первая точка**: клик ближе к вершине бара → **High**, ближе к основанию → **Low**."
                 )
             elif len(pts_now) == 1 and active_k == "h1_zig":
                 st.caption(
@@ -664,15 +669,29 @@ def render_trade_planner(*, ticker, api_df, go_df, md_df, iss_df, deposit, risk_
                             idx = df_view.index.get_indexer([clicked_time], method='nearest')[0]
                             
                             # === МАГНИТ К ЭКСТРЕМУМАМ ===
-                            window = 3
+                            window = 5
                             start_idx = max(0, idx - window)
                             end_idx = min(len(df_view) - 1, idx + window)
                             window_df = df_view.iloc[start_idx:end_idx + 1]
                             
                             bar = df_view.iloc[idx]
-                            is_clicked_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                            
+                            # Определяем тип экстремума (Low или High)
+                            if active_k == "d1_chan":
+                                if len(new_pts) == 0:
+                                    is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
+                                elif len(new_pts) == 1:
+                                    first_time, first_y = new_pts[0]
+                                    first_is_low = abs(first_y - df_view.loc[first_time, 'Low']) < abs(first_y - df_view.loc[first_time, 'High'])
+                                    is_low = first_is_low
+                                elif len(new_pts) == 2:
+                                    first_time, first_y = new_pts[0]
+                                    first_is_low = abs(first_y - df_view.loc[first_time, 'Low']) < abs(first_y - df_view.loc[first_time, 'High'])
+                                    is_low = not first_is_low
+                            else:
+                                is_low = abs(clicked_y - bar['Low']) <= abs(clicked_y - bar['High'])
 
-                            if is_clicked_low:
+                            if is_low:
                                 ext_idx = window_df['Low'].idxmin()
                                 snapped_time = ext_idx
                                 snapped_y = float(window_df.loc[ext_idx, 'Low'])
