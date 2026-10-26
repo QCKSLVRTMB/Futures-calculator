@@ -155,7 +155,17 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
                 state.autosave(force=True)
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile)
-    x_left, x_right = view.index[0], view.index[-1]
+    
+    # === БУФЕР ВРЕМЕНИ ДЛЯ ПРОДЛЕНИЯ ВПРАВО ===
+    if tf_name == "D1":
+        time_buffer = pd.Timedelta(days=10)
+    elif tf_name == "H1":
+        time_buffer = pd.Timedelta(hours=12)
+    else:
+        time_buffer = pd.Timedelta(hours=2)
+
+    x_left = view.index[0]
+    x_right = view.index[-1] + time_buffer
 
     d1_pts = tdata["charts"]["D1"]["channel"]
     d1_fib = tdata["charts"]["D1"]["fib"]
