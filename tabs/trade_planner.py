@@ -14,8 +14,7 @@ def render_trade_planner(*, ticker, iss_df=None, ims_df=None, go_df=None, api_df
     inst = get_instrument(ticker, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=state.g("margin_type"))
     tdata = state.ticker(ticker)
     _header(inst, tdata, mobile)
-    _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy)
-    _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mobile)
+    _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy)
 
 def _header(inst, tdata, mobile):
     chg = inst.change_pct
@@ -33,15 +32,72 @@ def _header(inst, tdata, mobile):
     kv_data(items, mobile=mobile)
 
 @fragment
-def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
-    st.markdown("#### Графики рынка")
+def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
+    deal = tdata["deal"]
     
+    # === ВВОД ПАРАМЕТРОВ СДЕЛКИ ===
+    st.markdown("#### Параметры сделки")
+    c = st.columns(1 if mobile else 3)
+    with c[0]:
+        deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
+    with c[1 % len(c)]:
+        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"sl_{ticker}") or None
+    with c[2 % len(c)]:
+        deal["tp"] = st.number_input("Тейк-профит (0 = авто)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
+
+    # Точки входа
+    if "entries" not in deal or not deal["entries"]:
+        deal["entries"] = [{"price": inst.price, "qty": 0}]
+    
+    entries_df = pd.DataFrame(deal["entries"])
+    ed = st.data_editor(
+        entries_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "price": st.column_config.NumberColumn("Цена входа", format="%.6f", step=inst.min_step),
+            "qty": st.column_config.NumberColumn("Кол-во (0 = авто)", min_value=0, step=1)
+        },
+        key=f"entries_{ticker}"
+    )
+    deal["entries"] = [{"price": float(r["price"]), "qty": int(r["qty"])} for _, r in ed.iterrows() if pd.notna(r["price"])]
+
+    plan = plan_trade(inst, direction=deal["direction"], entries=deal["entries"], sl=deal.get("sl"), tp=deal.get("tp"), deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
+
+    # === ГРАФИКИ ===
+    st.markdown("#### Графики рынка")
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
         with tab:
-            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy)
+            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy)
 
-def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
+    # === РЕЗУЛЬТАТЫ СДЕЛКИ ===
+    if plan:
+        st.markdown("#### Результаты расчета")
+        items = [
+            ("Допустимый риск (руб.)", money(plan["risk_budget"]), ""),
+            ("Вход (средний)", num(plan["entry"]), ""),
+            ("Стоп (SL)", num(plan["sl"]), "bad"),
+            ("Тейк (TP)", num(plan["tp"]), "ok"),
+            ("Рек. контрактов", f'{plan["qty_recommended"]} шт.', ""),
+            ("Риск в сделке", money(plan["risk_rub"]), "bad" if plan["risk_rub"] > plan["risk_budget"] else "ok"),
+            ("Прибыль в сделке", money(plan["reward_rub"]), "ok"),
+            ("R:R факт", f'1 : {num(plan["rr"])}', "ok" if plan["rr"] >= rr_ratio else "warn"),
+            ("Стоимость позиции", money(plan["notional"]), ""),
+            ("Плечо", f'{num(plan["leverage"], 1)}x', ""),
+            ("ГО под позицию", money(plan["margin_total"]), ""),
+            ("Комиссия (вход+выход)", money(plan["fee_per_contract"] * plan["qty"]), ""),
+            ("Безубыток", num(plan["breakeven"]), ""),
+        ]
+        kv_data(items, mobile=mobile)
+        
+        for w in plan["warnings"]:
+            st.warning(w)
+            
+    state.autosave()
+
+def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     if tf_name == "D1": available_tools = ["channel", "fib_d1"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
@@ -150,12 +206,9 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile)
     
-    if tf_name == "D1":
-        time_buffer = pd.Timedelta(days=10)
-    elif tf_name == "H1":
-        time_buffer = pd.Timedelta(hours=12)
-    else:
-        time_buffer = pd.Timedelta(hours=2)
+    if tf_name == "D1": time_buffer = pd.Timedelta(days=10)
+    elif tf_name == "H1": time_buffer = pd.Timedelta(hours=12)
+    else: time_buffer = pd.Timedelta(hours=2)
 
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
@@ -198,6 +251,10 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
             } for b in breakouts])
             st.dataframe(df_metrics, use_container_width=True, hide_index=True)
 
+    # Отрисовка сделки на графике
+    if plan:
+        charts.draw_trade_visuals(fig, plan, x_left, x_right, inst.decimals)
+
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
 
     b1, b2, b3 = st.columns(3)
@@ -205,58 +262,3 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
         if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
     if b2.button("Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
         chart_data[target_tool] = []; state.autosave(force=True); st.rerun(scope="fragment")
-
-@fragment
-def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mobile):
-    st.markdown("#### Параметры сделки")
-    deal = tdata["deal"]
-    h1_zig = tdata["charts"]["H1"]["zigzag"]
-    
-    p_a = h1_zig[-4][1] if len(h1_zig) >= 4 else None
-    p_b = h1_zig[-3][1] if len(h1_zig) >= 4 else None
-    p_c = h1_zig[-2][1] if len(h1_zig) >= 4 else None
-    
-    if not all([p_a, p_b, p_c]):
-        st.info("Для расчёта сделки нужно минимум 4 точки зигзага на H1.")
-        return
-
-    c = st.columns(1 if mobile else 3)
-    with c[0]: deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
-    with c[1 % len(c)]:
-        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"sl_{ticker}") or None
-    with c[2 % len(c)]:
-        deal["tp"] = st.number_input("Тейк-профит", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
-
-    avg_entry = p_c
-    sl_price = p_a if deal["direction"] == "LONG" else p_b
-    sl_points = abs(avg_entry - sl_price)
-    
-    # Если пользователь ввел свой TP, используем его, иначе считаем по R:R
-    if deal["tp"]:
-        tp_price = deal["tp"]
-    else:
-        tp_price = avg_entry + (sl_points * rr_ratio) if deal["direction"] == "LONG" else avg_entry - (sl_points * rr_ratio)
-    
-    plan = plan_trade(inst, direction=deal["direction"], entries=[{"price": avg_entry, "qty": 1}], sl=sl_price, tp=tp_price, deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
-
-    items = [
-        ("Допустимый риск (руб.)", money(plan["risk_budget"]), ""),
-        ("Вход (C)", num(plan["entry"]), ""),
-        ("Стоп (SL)", num(plan["sl"]), "bad"),
-        ("Тейк (TP)", num(plan["tp"]), "ok"),
-        ("Рек. контрактов", f'{plan["qty_recommended"]} шт.', ""),
-        ("Риск в сделке", money(plan["risk_rub"]), "bad" if plan["risk_rub"] > plan["risk_budget"] else "ok"),
-        ("Прибыль в сделке", money(plan["reward_rub"]), "ok"),
-        ("R:R факт", f'1 : {num(plan["rr"])}', "ok" if plan["rr"] >= rr_ratio else "warn"),
-        ("Стоимость позиции", money(plan["notional"]), ""),
-        ("Плечо", f'{num(plan["leverage"], 1)}x', ""),
-        ("ГО под позицию", money(plan["margin_total"]), ""),
-        ("Комиссия (вход+выход)", money(plan["fee_per_contract"] * plan["qty"]), ""),
-        ("Безубыток", num(plan["breakeven"]), ""),
-    ]
-    kv_data(items, mobile=mobile)
-    
-    for w in plan["warnings"]:
-        st.warning(w)
-        
-    state.autosave()
