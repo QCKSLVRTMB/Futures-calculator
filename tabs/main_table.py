@@ -4,6 +4,7 @@ import pandas as pd
 from core import state
 from core.market import to_float, vlookup
 from core.config import TREND_VALUES, MARGIN_COL_MAP
+from ui.theme import format_date
 
 def update_active_tickers():
     sel = st.session_state.get("picker_ms", [])
@@ -70,7 +71,9 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
         
         code = code_gs if code_gs != "-" else (iss_row.iloc[0].get("ASSETCODE", "-") if not iss_row.empty else "-")
         name = name_gs if name_gs != "-" else (iss_row.iloc[0].get("SHORTNAME", "-") if not iss_row.empty else "-")
-        expiry = expiry_gs if expiry_gs != "-" else (str(iss_row.iloc[0].get("LASTTRADEDATE", "-")) if not iss_row.empty else "-")
+        # Форматируем дату
+        raw_expiry = expiry_gs if expiry_gs != "-" else (iss_row.iloc[0].get("LASTTRADEDATE", "-") if not iss_row.empty else "-")
+        expiry = format_date(raw_expiry)
 
         max_contracts = int(deposit // margin) if margin > 0 else 0
         risk_pct = round(margin / deposit * 100, 2) if margin > 0 else 0.0
