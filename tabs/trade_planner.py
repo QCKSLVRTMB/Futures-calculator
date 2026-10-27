@@ -40,7 +40,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     with c[0]:
         deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
     
-    # Динамический формат в зависимости от знаков после запятой инструмента
     fmt = f"%.{inst.decimals}f"
     
     with c[1 % len(c)]:
@@ -279,11 +278,14 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
             df_metrics = pd.DataFrame([{
                 "Направление": "Вверх" if b["trend"] == "up" else "Вниз",
                 "Уровень B": b["resistance_price"],
-                "Пробой D-B": b["delta"],
+                "Пробой Δ": b["delta"],
+                "Пробой %": f"{b['breakout_pct']:.1f}%",
+                "Бары (П/О)": f"{b['bars']} / {b['retr_bars']}",
+                "Объем (П/О)": f"{b['volume']:,.0f} / {b['retr_vol']:,.0f}",
                 "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b.get("breakout_verdict"), "-"),
                 "Откат E": b["e_price"] if b["has_pullback"] else "-",
                 "E vs B": b["e_vs_b"] if b["has_pullback"] else "-",
-                "Глубина %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
+                "Откат %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
                 "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-",
                 "Срав. откатов": f"{b['retracement_ratio']:.2f}x" if b.get("retracement_ratio") else "-"
             } for b in breakouts])
