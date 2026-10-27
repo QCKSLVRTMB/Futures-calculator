@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 from core.config import IMS_MARGIN_MAP, TARIFF_CONFIGS
 
-LIQUIDITY_ORDER = ["🟢 Высокая", "🟡 Средняя", "🟠 Низкая", "🔴 Очень низкая", "— Нет открытых позиций"]
+LIQUIDITY_ORDER = ["Высокая", "Средняя", "Низкая", "Очень низкая", "Нет открытых позиций"]
 
 def _fmt_money(v):
     try: return f"{float(v):.2f}".replace(".", ",") + " ₽"
@@ -16,15 +16,15 @@ def _fmt_int(v):
 
 def _liquidity_rating(oi):
     try: v = float(oi)
-    except: return "— Нет открытых позиций"
-    if v >= 500_000: return "🟢 Высокая"
-    if v >= 100_000: return "🟡 Средняя"
-    if v >= 10_000: return "🟠 Низкая"
-    if v > 0: return "🔴 Очень низкая"
-    return "— Нет открытых позиций"
+    except: return "Нет открытых позиций"
+    if v >= 500_000: return "Высокая"
+    if v >= 100_000: return "Средняя"
+    if v >= 10_000: return "Низкая"
+    if v > 0: return "Очень низкая"
+    return "Нет открытых позиций"
 
 def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type="КСУР", commission="Т-Инвестиции", mobile=False):
-    st.subheader("🔍 Скринер фьючерсов MOEX")
+    st.subheader("Скринер фьючерсов MOEX")
     t_conf = TARIFF_CONFIGS.get(commission, TARIFF_CONFIGS["Т-Инвестиции"])
     if iss_df.empty: return
 
