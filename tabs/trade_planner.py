@@ -8,7 +8,7 @@ from core import charts, state
 from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, find_volume_clusters
 from core.config import DIRECTIONS, INTERVALS, TOOLS
 from core.market import fetch_moex_candles
-from ui.theme import cards, fragment, money, num, seg
+from ui.theme import kv_data, fragment, money, num, seg
 
 def render_trade_planner(*, ticker, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=None, deposit=75000.0, risk_pct=1.0, rr_ratio=3.0, commission="Т-Инвестиции", strategy="Зигзаг тенденции", mobile=False):
     inst = get_instrument(ticker, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=state.g("margin_type"))
@@ -19,15 +19,18 @@ def render_trade_planner(*, ticker, iss_df=None, ims_df=None, go_df=None, api_df
 
 def _header(inst, tdata, mobile):
     chg = inst.change_pct
-    cards([
-        (inst.name, num(inst.price), "ok" if chg >= 0 else "bad"),
+    items = [
+        ("Название", inst.name, ""),
+        ("Цена", num(inst.price), "ok" if chg >= 0 else "bad"),
         ("Изм. за день", f"{chg:+.2f}%".replace(".", ","), "ok" if chg >= 0 else "bad"),
         ("Шаг / ст. шага", f"{num(inst.min_step, 4)} / {num(inst.step_price)}", ""),
         ("1 пункт", money(inst.point_value), ""),
         ("ГО LONG / SHORT", f"{num(inst.margin_long, 0)} / {num(inst.margin_short, 0)}", ""),
         ("Экспирация", str(inst.expiry)[:10], ""),
-    ])
-    st.caption(f"Открытый интерес: {num(inst.open_interest, 0)} контр. · Стоимость контракта: {money(inst.notional)}")
+        ("Открытый интерес", f"{num(inst.open_interest, 0)} контр.", ""),
+        ("Стоимость контракта", money(inst.notional), ""),
+    ]
+    kv_data(items, mobile=mobile)
 
 @fragment
 def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
@@ -231,10 +234,20 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
     
     plan = plan_trade(inst, direction=deal["direction"], entries=[{"price": avg_entry, "qty": 1}], sl=sl_price, tp=tp_price, deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
 
-    cards([
-        ("Вход (C)", num(avg_entry), ""), ("SL (A/B)", num(sl_price), "bad"),
-        ("TP", num(tp_price), "ok"), ("Рекоменд. объём", f'{plan["qty_recommended"]} контр.', ""),
-        ("Риск", money(plan["risk_rub"]), "bad"), ("Потенциал", money(plan["reward_rub"]), "ok"),
+    items = [
+        ("Вход (C)", num(avg_entry), ""),
+        ("SL (A/B)", num(sl_price), "bad"),
+        ("TP", num(tp_price), "ok"),
+        ("Рекоменд. объём", f'{plan["qty_recommended"]} контр.', ""),
+        ("Фактический объём", f'{plan["qty"]} контр.', ""),
+        ("Риск", money(plan["risk_rub"]), "bad"),
+        ("Риск, % депо", num(plan["risk_pct_fact"]) + " %", "bad" if plan["risk_pct_fact"] > risk_pct else "ok"),
+        ("Потенциал", money(plan["reward_rub"]), "ok"),
         ("R:R", f'1 : {num(plan["rr"])}', "ok" if plan["rr"] >= rr_ratio else "warn"),
-    ])
+        ("ГО под позицию", money(plan["margin_total"]), ""),
+        ("ГО, % депо", num(plan["margin_pct"]) + " %", "warn" if plan["margin_pct"] > state.g("max_margin_util", 50) else ""),
+        ("Безубыток", num(plan["breakeven"]), ""),
+        ("Комиссия (round-trip)", money(plan["fee_per_contract"] * max(plan["qty"], 1)), ""),
+    ]
+    kv_data(items, mobile=mobile)
     state.autosave()
