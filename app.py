@@ -14,20 +14,18 @@ from ui.theme import inject_css, seg
 st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="collapsed")
 inject_css()
 
-# === ГЛАВНЫЙ ЗАГОЛОВОК И ЛОГОТИП ===
-st.markdown("<h1 style='text-align: center; color: #0F172A; margin-bottom: 0;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='text-align: center; color: #475569; margin-top: 0; margin-bottom: 20px;'>сообщества QCKSLVR TRADING</h3>", unsafe_allow_html=True)
+# === КОМПАКТНЫЙ ЗАГОЛОВОК С ЛОГО В ПРАВОМ УГЛУ ===
+col1, col2 = st.columns([5, 1])
+with col1:
+    st.markdown("<h1 style='color: #0F172A; margin: 0; padding-top: 0.5rem; font-size: 2rem;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #475569; margin: 0; font-size: 16px;'>сообщества QCKSLVR TRADING</p>", unsafe_allow_html=True)
+with col2:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", use_column_width=False, width=100)
+    elif os.path.exists("logo.jpg"):
+        st.image("logo.jpg", use_column_width=False, width=100)
 
-if os.path.exists("logo.png"):
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        st.image("logo.png", use_column_width=True)
-elif os.path.exists("logo.jpg"):
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        st.image("logo.jpg", use_column_width=True)
-
-st.write("") # Отступ
+st.write("")
 
 S = state.get_state()
 G = S["global"]
