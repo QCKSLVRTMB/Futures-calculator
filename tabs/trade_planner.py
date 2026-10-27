@@ -39,10 +39,14 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     c = st.columns(1 if mobile else 3)
     with c[0]:
         deal["direction"] = seg("Направление", DIRECTIONS, key=f"dir_{ticker}", default=deal.get("direction", "LONG")) or "LONG"
+    
+    # Динамический формат в зависимости от знаков после запятой инструмента
+    fmt = f"%.{inst.decimals}f"
+    
     with c[1 % len(c)]:
-        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"sl_{ticker}") or None
+        deal["sl"] = st.number_input("Стоп-лосс", value=float(deal.get("sl") or 0.0), step=float(inst.min_step or 0.01), format=fmt, key=f"sl_{ticker}") or None
     with c[2 % len(c)]:
-        deal["tp"] = st.number_input("Тейк-профит (0 = авто)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format="%.6f", key=f"tp_{ticker}") or None
+        deal["tp"] = st.number_input("Тейк-профит (0 = авто)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format=fmt, key=f"tp_{ticker}") or None
 
     if "entries" not in deal or not deal["entries"]:
         deal["entries"] = [{"price": inst.price, "qty": 0}]
@@ -51,7 +55,7 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     ed = st.data_editor(
         entries_df, num_rows="dynamic", use_container_width=True, hide_index=True,
         column_config={
-            "price": st.column_config.NumberColumn("Цена входа", format="%.6f", step=inst.min_step),
+            "price": st.column_config.NumberColumn("Цена входа", format=fmt, step=inst.min_step),
             "qty": st.column_config.NumberColumn("Кол-во (0 = авто)", min_value=0, step=1)
         },
         key=f"entries_{ticker}"
@@ -135,7 +139,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
     else: target_tool = "zigzag"
 
-    # Кнопки под инструментами
     b1, b2 = st.columns(2)
     if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
         if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
@@ -147,17 +150,15 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
         st.warning("Нет данных MOEX.")
         return
 
-    # === ЛОГИКА МАСШТАБИРОВАНИЯ ===
     d1_pts = tdata["charts"]["D1"]["channel"]
     h1_zig = tdata["charts"]["H1"]["zigzag"]
 
     zoom_start = None
     if tf_name == "H1" and len(d1_pts) == 3:
-        zoom_start = d1_pts[1][0] # Вторая точка канала D1
+        zoom_start = d1_pts[1][0]
     elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4:
-        zoom_start = h1_zig[-4][0] # 4-я точка с конца зигзага H1
+        zoom_start = h1_zig[-4][0]
 
-    # На M1 показываем в 10 раз больше баров по умолчанию, чтобы охватить тот же период, что и M10
     default_bars = 1500 if tf_name == "M1" else 150
 
     if zoom_start:
