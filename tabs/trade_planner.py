@@ -69,7 +69,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     if plan:
         st.markdown("#### Результаты расчета")
 
-        # Проверки для "fail" статуса
         sl_wrong = plan["sl"] > 0 and (
             (deal["direction"] == "LONG" and plan["sl"] >= plan["entry"]) or
             (deal["direction"] == "SHORT" and plan["sl"] <= plan["entry"])
@@ -131,6 +130,18 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
             show_clusters = cc2.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}") if tf_name == "H1" else False
             show_position = cc3.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
 
+    chart_data = tdata["charts"][tf_name]
+    if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
+    elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
+    else: target_tool = "zigzag"
+
+    # Кнопки под инструментами
+    b1, b2 = st.columns(2)
+    if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
+        if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
+    if b2.button("Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
+        chart_data[target_tool] = []; state.autosave(force=True); st.rerun(scope="fragment")
+
     df = fetch_moex_candles(ticker, cfg["interval"], cfg["days_back"])
     if df.empty:
         st.warning("Нет данных MOEX.")
@@ -139,11 +150,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     view = df.tail(150).copy()
     chart_key = f"chart_{ticker}_{tf_name}"
     click = charts.capture_click(chart_key)
-
-    chart_data = tdata["charts"][tf_name]
-    if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
-    elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
-    else: target_tool = "zigzag"
 
     pts = chart_data[target_tool]
 
@@ -264,9 +270,3 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
         charts.draw_trade_visuals(fig, plan, x_left, x_right, inst.decimals)
 
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
-
-    b1, b2, b3 = st.columns(3)
-    if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
-        if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
-    if b2.button("Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
-        chart_data[target_tool] = []; state.autosave(force=True); st.rerun(scope="fragment")
