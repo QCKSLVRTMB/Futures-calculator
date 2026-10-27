@@ -31,7 +31,6 @@ def auto_zigzag(df: pd.DataFrame, depth_pct: float = 1.5) -> list:
     pts.append([str(idx[piv_i]), float(piv_v)])
     return pts
 
-# ============ ОБЕРТКИ ДЛЯ row=1 ============
 def _line(fig, x0, y0, x1, y1, color, dash=None, width=2, name=None, show=False):
     fig.add_trace(go.Scatter(x=[x0, x1], y=[y0, y1], mode="lines", line=dict(color=color, width=width, dash=dash), name=name or "", showlegend=show, hoverinfo="skip"), row=1, col=1)
 
@@ -41,7 +40,6 @@ def _annot(fig, x, y, text, **kwargs):
 def _shape(fig, **kwargs):
     fig.add_shape(row=1, col=1, **kwargs)
 
-# ============ ИНСТРУМЕНТЫ ============
 def draw_channel(fig, pts, x_right):
     if len(pts) < 3: return
     t_a, y_a = pts[0][:2]; t_b, y_b = pts[1][:2]; t_c, y_c = pts[2][:2]
@@ -99,19 +97,23 @@ def draw_breakouts(fig, breakouts, decimals):
     for brk in breakouts:
         line_color_breakout = "#0d6efd" if brk["trend"] == "up" else "#dc3545"
         breakout_bg = "rgba(13, 110, 253, 0.9)" if brk["trend"] == "up" else "rgba(220, 53, 69, 0.9)"
-        b_text = f"Δ: {brk['delta']:.{decimals}f}<br>Бар: {brk['bars']}<br>Vol: {brk['volume']:,.0f}"
+        
+        b_text = f"Δ: {brk['delta']:.{decimals}f} ({brk['breakout_pct']:.1f}%)<br>Бар: {brk['bars']}<br>Vol: {brk['volume']:,.0f}"
         if (brk['peak_time'], brk['peak_price']) not in drawn_coords:
             fig.add_annotation(x=brk['peak_time'], y=brk['peak_price'], text=b_text, showarrow=True, arrowhead=2, ax=40, ay=-40, bgcolor=breakout_bg, font=dict(color="white", size=10), bordercolor="black", row=1, col=1)
             drawn_coords.add((brk['peak_time'], brk['peak_price']))
+            
         fig.add_shape(type="line", x0=brk['resistance_time'], y0=brk['resistance_price'], x1=brk['breakout_time'], y1=brk['resistance_price'], line=dict(color=line_color_breakout, width=2), row=1, col=1)
         fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['resistance_price'], x1=brk['breakout_time'], y1=brk['peak_price'], line=dict(color=line_color_breakout, width=2, dash="dot"), row=1, col=1)
         fig.add_shape(type="line", x0=brk['breakout_time'], y0=brk['peak_price'], x1=brk['peak_time'], y1=brk['peak_price'], line=dict(color=line_color_breakout, width=2, dash="dot"), row=1, col=1)
+        
         mid_y = brk['resistance_price'] + (brk['peak_price'] - brk['resistance_price']) / 2
         fig.add_annotation(x=brk['breakout_time'], y=mid_y, text=f"Δ: {brk['delta']:.{decimals}f}", showarrow=False, xanchor="right", xshift=-5, font=dict(color=line_color_breakout, size=11, weight="bold"), row=1, col=1)
+        
         if brk.get('has_pullback') and brk.get('e_time') is not None:
             p_verdict = brk['pullback_verdict']
             pullback_bg = "rgba(25, 135, 84, 0.9)" if p_verdict == "strong" else ("rgba(220, 53, 69, 0.9)" if p_verdict == "weak" else "rgba(253, 126, 20, 0.9)")
-            p_text = f"Откат: {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} B"
+            p_text = f"Откат: {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} B<br>Бар: {brk['retr_bars']}<br>Vol: {brk['retr_vol']:,.0f}"
             if (brk['e_time'], brk['e_price']) not in drawn_coords:
                 fig.add_annotation(x=brk['e_time'], y=brk['e_price'], text=p_text, showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor=pullback_bg, font=dict(color="white", size=10), bordercolor="black", row=1, col=1)
                 drawn_coords.add((brk['e_time'], brk['e_price']))
