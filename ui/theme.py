@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pandas as pd
 import streamlit as st
 
 CSS = """
@@ -40,6 +41,13 @@ def inject_css() -> None:
     if not st.session_state.get("_css_done"):
         st.markdown(CSS, unsafe_allow_html=True)
         st.session_state["_css_done"] = True
+
+def format_date(val) -> str:
+    """Приводит дату к формату DD.MM.YYYY."""
+    try:
+        return pd.to_datetime(val).strftime('%d.%m.%Y')
+    except Exception:
+        return str(val)
 
 def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
     """Рисует таблицу параметров (на мобиле — карточки)."""
