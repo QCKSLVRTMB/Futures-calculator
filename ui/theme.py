@@ -43,29 +43,57 @@ def inject_css() -> None:
         st.session_state["_css_done"] = True
 
 def format_date(val) -> str:
-    """Приводит дату к формату DD.MM.YYYY."""
     try:
         return pd.to_datetime(val).strftime('%d.%m.%Y')
     except Exception:
         return str(val)
 
 def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
-    """Рисует таблицу параметров (на мобиле — карточки)."""
+    """Рисует таблицу параметров. Статусы: ok / bad / warn / fail (красная заливка) / '' """
     if mobile:
         html = "<div style='display:flex; flex-direction:column; gap:6px;'>"
         for label, value, status in items:
-            color = "color: #16a34a;" if status == "ok" else ("color: #dc2626;" if status == "bad" else ("color: #d97706;" if status == "warn" else "color: #0f172a;"))
+            if status == "fail":
+                row_style = "background:#ef5350; border:1px solid #c62828;"
+                lbl_color = "color:#000000;"
+                val_color = "color:#000000;"
+            elif status == "ok":
+                row_style = "background:#fff; border:1px solid #e2e8f0;"
+                lbl_color = "color:#64748b;"
+                val_color = "color:#16a34a;"
+            elif status == "bad":
+                row_style = "background:#fff; border:1px solid #e2e8f0;"
+                lbl_color = "color:#64748b;"
+                val_color = "color:#dc2626;"
+            elif status == "warn":
+                row_style = "background:#fff; border:1px solid #e2e8f0;"
+                lbl_color = "color:#64748b;"
+                val_color = "color:#d97706;"
+            else:
+                row_style = "background:#fff; border:1px solid #e2e8f0;"
+                lbl_color = "color:#64748b;"
+                val_color = "color:#0f172a;"
+
             html += f"""
-            <div style="background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">
-                <span style="color:#64748b; font-size:13px;">{label}</span>
-                <span style="font-weight:600; font-size:15px; {color}">{value}</span>
+            <div style="{row_style} border-radius:6px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">
+                <span style="{lbl_color} font-size:13px;">{label}</span>
+                <span style="font-weight:600; font-size:15px; {val_color}">{value}</span>
             </div>"""
         html += "</div>"
     else:
         html = "<table style='width:100%; border-collapse:collapse; font-size:14px; margin-bottom: 1rem;'>"
         html += "<thead><tr><th style='text-align:left; padding:10px; border-bottom:2px solid #cbd5e1; color:#475569; font-weight: 600;'>Параметр</th><th style='text-align:right; padding:10px; border-bottom:2px solid #cbd5e1; color:#475569; font-weight: 600;'>Значение</th></tr></thead><tbody>"
         for label, value, status in items:
-            color = "color: #16a34a;" if status == "ok" else ("color: #dc2626;" if status == "bad" else ("color: #d97706;" if status == "warn" else "color: #0f172a;"))
+            if status == "fail":
+                color = "background:#ef5350; color:#000000;"
+            elif status == "ok":
+                color = "color: #16a34a;"
+            elif status == "bad":
+                color = "color: #dc2626;"
+            elif status == "warn":
+                color = "color: #d97706;"
+            else:
+                color = "color: #0f172a;"
             html += f"<tr><td style='padding:10px; border-bottom:1px solid #e2e8f0; color:#334155;'>{label}</td><td style='text-align:right; padding:10px; border-bottom:1px solid #e2e8f0; font-weight:600; {color}'>{value}</td></tr>"
         html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
