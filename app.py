@@ -87,7 +87,8 @@ api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 tickers = state.active_tickers()
 tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" if tickers else "Калькуляторы фьючерсов"
 
-tab_market, tab_screen, tab_plan = st.tabs(["Биржа", "Скринер", tab_plan_name])
+# Вкладка "Биржа" переименована в "Данные"
+tab_market, tab_screen, tab_plan = st.tabs(["Данные", "Скринер", tab_plan_name])
 
 with tab_market:
     render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
@@ -97,7 +98,7 @@ with tab_screen:
 
 with tab_plan:
     if not tickers:
-        st.info("Добавьте инструменты на вкладке «Биржа».")
+        st.info("Добавьте инструменты на вкладке «Данные».")
     else:
         active = seg("Инструмент", tickers, key="plan_ticker", default=st.session_state.get("plan_ticker", tickers[0]))
         active = active if active in tickers else tickers[0]
