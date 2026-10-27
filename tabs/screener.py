@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from core.config import IMS_MARGIN_MAP, TARIFF_CONFIGS
+from ui.theme import format_date
 
 LIQUIDITY_ORDER = ["Высокая", "Средняя", "Низкая", "Очень низкая", "Нет открытых позиций"]
 
@@ -86,5 +87,8 @@ def render_screener(*, iss_df, go_df=None, ims_df=None, deposit=0.0, margin_type
         "SECID": "Тикер", "SHORTNAME": "Имя", "LAST": "Цена", "MarginLong": "ГО LONG", "MarginShort": "ГО SHORT", "MaxContracts": "Макс.", "Liquidity": "Ликвидность", "LASTTRADEDATE": "Экспирация", "Commission_1": "Комиссия"
     })
     
+    # Форматируем колонку с экспирацией
+    out["Экспирация"] = out["Экспирация"].apply(format_date)
+
     st.dataframe(out, use_container_width=True, hide_index=True)
     st.caption(f"Показано: {len(view)} из {len(df)}")
