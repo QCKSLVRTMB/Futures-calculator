@@ -34,7 +34,7 @@ TARIFF_CONFIGS = {
     "Без комиссии": {"type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0},
 }
 
-# Таймфреймы: D1, H1, M10 и M1 (последний — с ~10x барами от M10)
+# M1 остаётся с days_back=5, чтобы соблюсти правило M10 x 10
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False, "label": "D1 (Дни)"},
     "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True,  "label": "H1 (Часы)"},
