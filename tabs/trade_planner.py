@@ -147,29 +147,31 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
         st.warning("Нет данных MOEX.")
         return
 
-    # === ЛОГИКА МАСШТАБИРОВАНИЯ (от точек канала/зигзага) ===
+    # === ЛОГИКА МАСШТАБИРОВАНИЯ ===
     d1_pts = tdata["charts"]["D1"]["channel"]
     h1_zig = tdata["charts"]["H1"]["zigzag"]
 
     zoom_start = None
     if tf_name == "H1" and len(d1_pts) == 3:
         zoom_start = d1_pts[1][0] # Вторая точка канала D1
-    elif tf_name == "M10" and len(h1_zig) >= 4:
+    elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4:
         zoom_start = h1_zig[-4][0] # 4-я точка с конца зигзага H1
+
+    # На M1 показываем в 10 раз больше баров по умолчанию, чтобы охватить тот же период, что и M10
+    default_bars = 1500 if tf_name == "M1" else 150
 
     if zoom_start:
         try:
             z_time = pd.to_datetime(zoom_start)
             filtered_df = df.loc[z_time:]
             if len(filtered_df) < 10:
-                view = df.tail(150).copy()
+                view = df.tail(default_bars).copy()
             else:
                 view = filtered_df.copy()
         except Exception:
-            view = df.tail(150).copy()
+            view = df.tail(default_bars).copy()
     else:
-        view = df.tail(150).copy()
-    # =========================================================
+        view = df.tail(default_bars).copy()
 
     chart_key = f"chart_{ticker}_{tf_name}"
     click = charts.capture_click(chart_key)
