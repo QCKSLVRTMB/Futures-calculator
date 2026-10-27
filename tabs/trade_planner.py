@@ -31,7 +31,7 @@ def _header(inst, tdata, mobile):
 
 @fragment
 def _chart_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commission, strategy):
-    st.markdown("#### 📈 Графики рынка")
+    st.markdown("#### Графики рынка")
     
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -198,14 +198,14 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, deposit, risk_pc
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
 
     b1, b2, b3 = st.columns(3)
-    if b1.button("↩︎ Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
+    if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
         if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
-    if b2.button("🗑 Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
+    if b2.button("Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
         chart_data[target_tool] = []; state.autosave(force=True); st.rerun(scope="fragment")
 
 @fragment
 def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mobile):
-    st.markdown("#### 🎯 Параметры сделки")
+    st.markdown("#### Параметры сделки")
     deal = tdata["deal"]
     h1_zig = tdata["charts"]["H1"]["zigzag"]
     
