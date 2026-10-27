@@ -119,38 +119,29 @@ def draw_breakouts(fig, breakouts, decimals):
             fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['e_price'], x1=brk['e_time'], y1=brk['e_price'], line=dict(color="#fd7e14", width=2), row=1, col=1)
 
 def draw_trade_visuals(fig, plan, x_left, x_right, decimals):
-    """Рисует зоны сделки (вход, стоп, тейк) как на скриншоте."""
     if not plan or not plan.get("entry") or not plan.get("sl"): return
-    entry = plan["entry"]
-    sl = plan["sl"]
-    tp = plan.get("tp")
-    qty = plan.get("qty", 0)
-
-    # Линия входа
+    entry = plan["entry"]; sl = plan["sl"]; tp = plan.get("tp"); qty = plan.get("qty", 0)
     fig.add_shape(type="line", x0=x_left, x1=x_right, y0=entry, y1=entry, line=dict(color="black", width=1, dash="dash"), row=1, col=1)
-
-    # Зона стопа (красная)
     sl_pct = abs(entry - sl) / entry * 100 if entry else 0
     sl_text = f"Стоп: {sl:,.{decimals}f} ({sl_pct:.2f}%) {abs(entry-sl):,.0f} пт., Кол-во: {qty}"
     fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=min(entry, sl), y1=max(entry, sl), fillcolor="rgba(220, 53, 69, 0.15)", line=dict(width=0), layer="below", row=1, col=1)
     fig.add_annotation(x=x_right, y=sl, text=sl_text, showarrow=False, xanchor="right", bgcolor="rgba(220, 53, 69, 0.9)", font=dict(color="white", size=10), row=1, col=1)
-
-    # Зона тейка (зеленая)
     if tp:
         tp_pct = abs(tp - entry) / entry * 100 if entry else 0
         tp_text = f"Цель: {tp:,.{decimals}f} ({tp_pct:.2f}%) {abs(tp-entry):,.0f} пт., Кол-во: {qty}"
         fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=min(entry, tp), y1=max(entry, tp), fillcolor="rgba(25, 135, 84, 0.15)", line=dict(width=0), layer="below", row=1, col=1)
         fig.add_annotation(x=x_right, y=tp, text=tp_text, showarrow=False, xanchor="right", bgcolor="rgba(25, 135, 84, 0.9)", font=dict(color="white", size=10), row=1, col=1)
-
-    # Центральная плашка
-    risk_rub = plan.get("risk_rub", 0)
-    rr = plan.get("rr", 0)
+    risk_rub = plan.get("risk_rub", 0); rr = plan.get("rr", 0)
     center_text = f"Риск: {risk_rub:,.0f} ₽<br>R:R = 1:{rr:.2f}"
     fig.add_annotation(x=x_left, y=entry, text=center_text, showarrow=False, xanchor="left", bgcolor="rgba(220, 53, 69, 0.7)", font=dict(color="white", size=10), row=1, col=1)
 
 def _volume_colors(df, tf_name):
-    is_d1, is_h1, is_m10 = (tf_name == "D1", tf_name == "H1", tf_name == "M10")
-    volumes = df["Volume"].values; times = df.index; colors = ["gray"] * len(df)
+    is_d1 = tf_name == "D1"
+    is_h1 = tf_name == "H1"
+    is_min = tf_name in ("M10", "M1")
+    volumes = df["Volume"].values
+    times = df.index
+    colors = ["gray"] * len(df)
     for i in range(2, len(df)):
         if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]: colors[i] = "black"
     if is_h1:
@@ -158,7 +149,7 @@ def _volume_colors(df, tf_name):
             if times[i].hour == 10 and times[i].minute == 0:
                 prev = [volumes[j] for j in range(i-1, -1, -1) if times[j].hour == 10 and times[j].minute == 0][:2]
                 if len(prev) == 2 and volumes[i] > prev[0] and volumes[i] > prev[1]: colors[i] = "black"
-    anomaly = "red" if is_m10 else ("green" if is_h1 else ("blue" if is_d1 else None))
+    anomaly = "red" if is_min else ("green" if is_h1 else ("blue" if is_d1 else None))
     if anomaly:
         avg = pd.Series(volumes).rolling(20, min_periods=5).mean().shift(1)
         for i in range(len(volumes)):
