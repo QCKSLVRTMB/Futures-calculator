@@ -71,14 +71,7 @@ def draw_levels(fig, levels, x_left, x_right):
     for y in levels or []:
         _line(fig, x_left, y, x_right, y, "#546E7A", dash="dash", width=1)
 
-def draw_rr_zones(fig, pts, strategy):
-    if len(pts) < 2: return
-    if strategy == "Зигзаг тенденции":
-        t_c, p_c = _ts(pts[-2][0]), pts[-2][1]
-        t_d, p_d = _ts(pts[-1][0]), pts[-1][1]
-    else:
-        t_c, p_c = _ts(pts[0][0]), pts[0][1]
-        t_d, p_d = _ts(pts[-1][0]), pts[-1][1]
+def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     low, high = min(p_c, p_d), max(p_c, p_d)
     diff = high - low
     if diff <= 0: return
@@ -98,7 +91,7 @@ def draw_breakouts(fig, breakouts, decimals):
         line_color_breakout = "#0d6efd" if brk["trend"] == "up" else "#dc3545"
         breakout_bg = "rgba(13, 110, 253, 0.9)" if brk["trend"] == "up" else "rgba(220, 53, 69, 0.9)"
         
-        b_text = f"Δ: {brk['delta']:.{decimals}f} ({brk['breakout_pct']:.1f}%)<br>Бар: {brk['bars']}<br>Vol: {brk['volume']:,.0f}"
+        b_text = f"Пробой: {brk['delta']:.{decimals}f} ({brk['breakout_pct']:.1f}%)<br>Бар: {brk['bars']}<br>Vol: {brk['volume']:,.0f}"
         if (brk['peak_time'], brk['peak_price']) not in drawn_coords:
             fig.add_annotation(x=brk['peak_time'], y=brk['peak_price'], text=b_text, showarrow=True, arrowhead=2, ax=40, ay=-40, bgcolor=breakout_bg, font=dict(color="white", size=10), bordercolor="black", row=1, col=1)
             drawn_coords.add((brk['peak_time'], brk['peak_price']))
@@ -112,8 +105,8 @@ def draw_breakouts(fig, breakouts, decimals):
         
         if brk.get('has_pullback') and brk.get('e_time') is not None:
             p_verdict = brk['pullback_verdict']
-            pullback_bg = "rgba(25, 135, 84, 0.9)" if p_verdict == "strong" else ("rgba(220, 53, 69, 0.9)" if p_verdict == "weak" else "rgba(253, 126, 20, 0.9)")
-            p_text = f"Откат: {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} B<br>Бар: {brk['retr_bars']}<br>Vol: {brk['retr_vol']:,.0f}"
+            pullback_bg = "rgba(25, 135, 84, 0.9)" if p_verdict == "Сильный" else ("rgba(220, 53, 69, 0.9)" if p_verdict == "Слабый" else "rgba(253, 126, 20, 0.9)")
+            p_text = f"Откат: {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} (0.5 Fib)<br>Бар: {brk['retr_bars']}<br>Vol: {brk['retr_vol']:,.0f}"
             if (brk['e_time'], brk['e_price']) not in drawn_coords:
                 fig.add_annotation(x=brk['e_time'], y=brk['e_price'], text=p_text, showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor=pullback_bg, font=dict(color="white", size=10), bordercolor="black", row=1, col=1)
                 drawn_coords.add((brk['e_time'], brk['e_price']))
