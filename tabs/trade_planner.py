@@ -26,7 +26,7 @@ def _header(inst, tdata, mobile):
         ("Шаг / ст. шага", f"{num(inst.min_step, 4)} / {num(inst.step_price)}", ""),
         ("1 пункт", money(inst.point_value), ""),
         ("ГО LONG / SHORT", f"{num(inst.margin_long, 0)} / {num(inst.margin_short, 0)}", ""),
-        ("Экспирация", format_date(inst.expiry), ""),  # <--- ИСПОЛЬЗУЕМ format_date
+        ("Экспирация", format_date(inst.expiry), ""),
         ("Открытый интерес", f"{num(inst.open_interest, 0)} контр.", ""),
         ("Стоимость контракта", money(inst.notional), ""),
     ]
@@ -230,24 +230,33 @@ def _deal_block(ticker, inst, tdata, deposit, risk_pct, rr_ratio, commission, mo
     avg_entry = p_c
     sl_price = p_a if deal["direction"] == "LONG" else p_b
     sl_points = abs(avg_entry - sl_price)
-    tp_price = avg_entry + (sl_points * rr_ratio) if deal["direction"] == "LONG" else avg_entry - (sl_points * rr_ratio)
+    
+    # Если пользователь ввел свой TP, используем его, иначе считаем по R:R
+    if deal["tp"]:
+        tp_price = deal["tp"]
+    else:
+        tp_price = avg_entry + (sl_points * rr_ratio) if deal["direction"] == "LONG" else avg_entry - (sl_points * rr_ratio)
     
     plan = plan_trade(inst, direction=deal["direction"], entries=[{"price": avg_entry, "qty": 1}], sl=sl_price, tp=tp_price, deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
 
     items = [
-        ("Вход (C)", num(avg_entry), ""),
-        ("SL (A/B)", num(sl_price), "bad"),
-        ("TP", num(tp_price), "ok"),
-        ("Рекоменд. объём", f'{plan["qty_recommended"]} контр.', ""),
-        ("Фактический объём", f'{plan["qty"]} контр.', ""),
-        ("Риск", money(plan["risk_rub"]), "bad"),
-        ("Риск, % депо", num(plan["risk_pct_fact"]) + " %", "bad" if plan["risk_pct_fact"] > risk_pct else "ok"),
-        ("Потенциал", money(plan["reward_rub"]), "ok"),
-        ("R:R", f'1 : {num(plan["rr"])}', "ok" if plan["rr"] >= rr_ratio else "warn"),
+        ("Допустимый риск (руб.)", money(plan["risk_budget"]), ""),
+        ("Вход (C)", num(plan["entry"]), ""),
+        ("Стоп (SL)", num(plan["sl"]), "bad"),
+        ("Тейк (TP)", num(plan["tp"]), "ok"),
+        ("Рек. контрактов", f'{plan["qty_recommended"]} шт.', ""),
+        ("Риск в сделке", money(plan["risk_rub"]), "bad" if plan["risk_rub"] > plan["risk_budget"] else "ok"),
+        ("Прибыль в сделке", money(plan["reward_rub"]), "ok"),
+        ("R:R факт", f'1 : {num(plan["rr"])}', "ok" if plan["rr"] >= rr_ratio else "warn"),
+        ("Стоимость позиции", money(plan["notional"]), ""),
+        ("Плечо", f'{num(plan["leverage"], 1)}x', ""),
         ("ГО под позицию", money(plan["margin_total"]), ""),
-        ("ГО, % депо", num(plan["margin_pct"]) + " %", "warn" if plan["margin_pct"] > state.g("max_margin_util", 50) else ""),
+        ("Комиссия (вход+выход)", money(plan["fee_per_contract"] * plan["qty"]), ""),
         ("Безубыток", num(plan["breakeven"]), ""),
-        ("Комиссия (round-trip)", money(plan["fee_per_contract"] * max(plan["qty"], 1)), ""),
     ]
     kv_data(items, mobile=mobile)
+    
+    for w in plan["warnings"]:
+        st.warning(w)
+        
     state.autosave()
