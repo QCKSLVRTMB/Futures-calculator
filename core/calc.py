@@ -175,7 +175,6 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
 
 def analyze_manual_zigzag(pts, df):
     if len(pts) < 4: return []
-    # ИСПРАВЛЕНО: Сортировка точек по времени, чтобы формация находилась корректно даже при кликах не по порядку
     pts = sorted(pts, key=lambda p: pd.to_datetime(p[0]))
     
     breakouts = []
@@ -189,17 +188,24 @@ def analyze_manual_zigzag(pts, df):
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
             # Восходящий тренд
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
-            breakout_mag = d_price - b_price
+            curr_height = d_price - c_price
+            prev_height = b_price - a_price
+            height_ratio = curr_height / prev_height if prev_height > 0 else 0
+            
+            prev_leg = df.loc[a_time:b_time]
+            curr_leg = df.loc[c_time:d_time]
+            bars_ratio = len(curr_leg) / len(prev_leg) if len(prev_leg) > 0 else 0
+            vol_ratio = curr_leg['Volume'].sum() / prev_leg['Volume'].sum() if prev_leg['Volume'].sum() > 0 else 0
+            
             setup_delta = b_price - c_price
-            df_setup = df.loc[b_time:c_time]
-            breakout_pct = (breakout_mag / setup_delta * 100) if setup_delta > 0 else 0
+            breakout_pct = (curr_height / setup_delta * 100) if setup_delta > 0 else 0
             
             has_pullback = False
             e_time = e_price = None
             e_delta = None
             retracement_pct = None
             pullback_verdict = None
-            e_vs_b = "-"
+            e_vs_05 = "-"
             retr_bars = 0
             retr_vol = 0
             
@@ -208,11 +214,16 @@ def analyze_manual_zigzag(pts, df):
                 if e_price < d_price:
                     has_pullback = True
                     e_delta = d_price - e_price
-                    if breakout_mag > 0:
-                        retracement_pct = (d_price - e_price) / breakout_mag * 100
-                    if e_price > b_price: pullback_verdict = "strong"; e_vs_b = "выше B"
-                    elif e_price < b_price: pullback_verdict = "weak"; e_vs_b = "ниже B"
-                    else: pullback_verdict = "normal"; e_vs_b = "на уровне B"
+                    fib_05 = d_price - (d_price - c_price) * 0.5
+                    retracement_pct = (d_price - e_price) / curr_height * 100 if curr_height > 0 else 0
+                    
+                    if e_price > fib_05: 
+                        pullback_verdict = "Сильный"; e_vs_05 = "выше 0.5"
+                    elif e_price < fib_05: 
+                        pullback_verdict = "Слабый"; e_vs_05 = "ниже 0.5"
+                    else: 
+                        pullback_verdict = "Нормальный"; e_vs_05 = "на уровне 0.5"
+                        
                     df_pullback = df.loc[d_time:e_time]
                     retr_bars = len(df_pullback)
                     retr_vol = df_pullback['Volume'].sum()
@@ -221,26 +232,34 @@ def analyze_manual_zigzag(pts, df):
                 "trend": "up", "resistance_time": b_time, "resistance_price": b_price,
                 "pullback_setup_time": c_time, "pullback_setup_price": c_price,
                 "peak_time": d_time, "peak_price": d_price, "breakout_time": brk_time,
-                "delta": breakout_mag, "breakout_pct": breakout_pct, "bars": bars, "volume": vol,
-                "setup_delta": setup_delta, "setup_bars": len(df_setup), "setup_vol": df_setup['Volume'].sum(),
+                "delta": curr_height, "breakout_pct": breakout_pct, "bars": bars, "volume": vol,
+                "setup_delta": setup_delta, "setup_bars": len(df.loc[b_time:c_time]), "setup_vol": df.loc[b_time:c_time]['Volume'].sum(),
                 "has_pullback": has_pullback, "e_time": e_time, "e_price": e_price, "e_delta": e_delta,
                 "retr_bars": retr_bars, "retr_vol": retr_vol,
-                "retracement_pct": retracement_pct, "pullback_verdict": pullback_verdict, "e_vs_b": e_vs_b
+                "retracement_pct": retracement_pct, "pullback_verdict": pullback_verdict, "e_vs_b": e_vs_05,
+                "height_ratio": height_ratio, "bars_ratio": bars_ratio, "vol_ratio": vol_ratio
             })
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
             # Нисходящий тренд
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
-            breakout_mag = b_price - d_price
+            curr_height = c_price - d_price
+            prev_height = a_price - b_price
+            height_ratio = curr_height / prev_height if prev_height > 0 else 0
+            
+            prev_leg = df.loc[a_time:b_time]
+            curr_leg = df.loc[c_time:d_time]
+            bars_ratio = len(curr_leg) / len(prev_leg) if len(prev_leg) > 0 else 0
+            vol_ratio = curr_leg['Volume'].sum() / prev_leg['Volume'].sum() if prev_leg['Volume'].sum() > 0 else 0
+            
             setup_delta = c_price - b_price
-            df_setup = df.loc[b_time:c_time]
-            breakout_pct = (breakout_mag / setup_delta * 100) if setup_delta > 0 else 0
+            breakout_pct = (curr_height / setup_delta * 100) if setup_delta > 0 else 0
             
             has_pullback = False
             e_time = e_price = None
             e_delta = None
             retracement_pct = None
             pullback_verdict = None
-            e_vs_b = "-"
+            e_vs_05 = "-"
             retr_bars = 0
             retr_vol = 0
             
@@ -249,11 +268,16 @@ def analyze_manual_zigzag(pts, df):
                 if e_price > d_price:
                     has_pullback = True
                     e_delta = e_price - d_price
-                    if breakout_mag > 0:
-                        retracement_pct = (e_price - d_price) / breakout_mag * 100
-                    if e_price < b_price: pullback_verdict = "strong"; e_vs_b = "ниже B"
-                    elif e_price > b_price: pullback_verdict = "weak"; e_vs_b = "выше B"
-                    else: pullback_verdict = "normal"; e_vs_b = "на уровне B"
+                    fib_05 = d_price + (c_price - d_price) * 0.5
+                    retracement_pct = (e_price - d_price) / curr_height * 100 if curr_height > 0 else 0
+                    
+                    if e_price < fib_05: 
+                        pullback_verdict = "Сильный"; e_vs_05 = "ниже 0.5"
+                    elif e_price > fib_05: 
+                        pullback_verdict = "Слабый"; e_vs_05 = "выше 0.5"
+                    else: 
+                        pullback_verdict = "Нормальный"; e_vs_05 = "на уровне 0.5"
+                        
                     df_pullback = df.loc[d_time:e_time]
                     retr_bars = len(df_pullback)
                     retr_vol = df_pullback['Volume'].sum()
@@ -262,30 +286,23 @@ def analyze_manual_zigzag(pts, df):
                 "trend": "down", "resistance_time": b_time, "resistance_price": b_price,
                 "pullback_setup_time": c_time, "pullback_setup_price": c_price,
                 "peak_time": d_time, "peak_price": d_price, "breakout_time": brk_time,
-                "delta": breakout_mag, "breakout_pct": breakout_pct, "bars": bars, "volume": vol,
-                "setup_delta": setup_delta, "setup_bars": len(df_setup), "setup_vol": df_setup['Volume'].sum(),
+                "delta": curr_height, "breakout_pct": breakout_pct, "bars": bars, "volume": vol,
+                "setup_delta": setup_delta, "setup_bars": len(df.loc[b_time:c_time]), "setup_vol": df.loc[b_time:c_time]['Volume'].sum(),
                 "has_pullback": has_pullback, "e_time": e_time, "e_price": e_price, "e_delta": e_delta,
                 "retr_bars": retr_bars, "retr_vol": retr_vol,
-                "retracement_pct": retracement_pct, "pullback_verdict": pullback_verdict, "e_vs_b": e_vs_b
+                "retracement_pct": retracement_pct, "pullback_verdict": pullback_verdict, "e_vs_b": e_vs_05,
+                "height_ratio": height_ratio, "bars_ratio": bars_ratio, "vol_ratio": vol_ratio
             })
 
-    for i, brk in enumerate(breakouts):
-        if i == 0:
-            brk['breakout_verdict'] = "base"; brk['breakout_ratio'] = None; brk['retracement_ratio'] = None
+    for brk in breakouts:
+        h_ratio, b_ratio, v_ratio = brk["height_ratio"], brk["bars_ratio"], brk["vol_ratio"]
+        if h_ratio >= 1.1 and b_ratio <= 1.0:
+            brk["breakout_verdict"] = "strong"
+        elif h_ratio <= 0.9 or b_ratio >= 1.5 or v_ratio >= 1.5:
+            brk["breakout_verdict"] = "weak"
         else:
-            prev = breakouts[i-1]
-            if prev['delta'] > 0:
-                ratio = brk['delta'] / prev['delta']
-                brk['breakout_ratio'] = ratio
-                if ratio >= 1.15: brk['breakout_verdict'] = "strong"
-                elif ratio <= 0.85: brk['breakout_verdict'] = "weak"
-                else: brk['breakout_verdict'] = "normal"
-            else:
-                brk['breakout_ratio'] = None; brk['breakout_verdict'] = "normal"
-            if prev.get('retracement_pct') is not None and brk.get('retracement_pct') is not None:
-                brk['retracement_ratio'] = brk['retracement_pct'] / prev['retracement_pct'] if prev['retracement_pct'] > 0 else None
-            else:
-                brk['retracement_ratio'] = None
+            brk["breakout_verdict"] = "normal"
+            
     return breakouts
 
 def find_volume_clusters(df: pd.DataFrame, threshold_mult=3.0, window=20) -> list[dict]:
