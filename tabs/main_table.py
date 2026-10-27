@@ -1,9 +1,11 @@
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from core import state
 from core.market import to_float, vlookup
 from core.config import TREND_VALUES, MARGIN_COL_MAP
+from core.calc import get_instrument
 from ui.theme import format_date
 
 def update_active_tickers():
@@ -41,70 +43,67 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
         st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
-    col_go, _ = MARGIN_COL_MAP.get(margin_type, (4, 5))
     rows = []
-    
     for t in picked:
-        iss_row = iss_df[iss_df["SECID"] == t] if not iss_df.empty and "SECID" in iss_df.columns else pd.DataFrame()
-        price = 0.0
-        if not iss_row.empty:
-            price = to_float(iss_row.iloc[0].get("LAST", 0)) or to_float(iss_row.iloc[0].get("PREVSETTLEPRICE", 0))
-        if price == 0: price = to_float(vlookup(md_df, t, 9))
-            
-        step_price, step_cost = 0.0, 0.0
-        if not iss_row.empty:
-            step_price = to_float(iss_row.iloc[0].get("MINSTEP", 0))
-            step_cost = to_float(iss_row.iloc[0].get("STEPPRICE", 0))
-        if step_price == 0:
-            step_price = to_float(vlookup(api_df, t, 6))
-            step_cost = to_float(vlookup(api_df, t, 17))
-
-        margin = 0.0
-        if not iss_row.empty:
-            margin = to_float(iss_row.iloc[0].get("INITIALMARGIN", 0))
-        if margin == 0:
-            margin = to_float(vlookup(go_df, t, col_go))
-
-        code_gs = vlookup(api_df, t, 9)
-        name_gs = vlookup(api_df, t, 3)
-        expiry_gs = vlookup(api_df, t, 7)
+        # Используем get_instrument для сбора всех данных в одном месте
+        inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=margin_type)
         
-        code = code_gs if code_gs != "-" else (iss_row.iloc[0].get("ASSETCODE", "-") if not iss_row.empty else "-")
-        name = name_gs if name_gs != "-" else (iss_row.iloc[0].get("SHORTNAME", "-") if not iss_row.empty else "-")
-        # Форматируем дату
-        raw_expiry = expiry_gs if expiry_gs != "-" else (iss_row.iloc[0].get("LASTTRADEDATE", "-") if not iss_row.empty else "-")
-        expiry = format_date(raw_expiry)
+        # Логика расчета доступных контрактов (берем минимальное из ГО LONG/SHORT)
+        margin_go = min(inst.margin_long, inst.margin_short) if inst.margin_long > 0 and inst.margin_short > 0 else max(inst.margin_long, inst.margin_short)
+        max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
+        
+        risk_pct = round(margin_go / deposit * 100, 2) if margin_go > 0 and deposit > 0 else 0.0
 
-        max_contracts = int(deposit // margin) if margin > 0 else 0
-        risk_pct = round(margin / deposit * 100, 2) if margin > 0 else 0.0
+        # Получаем время обновления из ISS
+        update_time = "-"
+        if not iss_df.empty:
+            iss_row = iss_df[iss_df["SECID"] == t]
+            if not iss_row.empty and pd.notna(iss_row.iloc[0].get("Updated")):
+                update_time = pd.to_datetime(iss_row.iloc[0].get("Updated")).strftime("%d.%m.%y %H:%M")
 
         m = state.ticker(t)["market"]
         rows.append({
-            "Код": code, "Наименование": name, "Тикер": t, "Шаг цены": step_price,
-            "Ст. шага": step_cost, "ГО": margin, "Доступно": max_contracts, "Цена": price,
-            "Экспирация": expiry, "Риск, %": risk_pct,
-            "Тренд": m["trend"], "Волна": m["wave"], "Тенденция": m["tendency"],
+            "Код контракта": inst.asset_code,
+            "Наименование контракта": inst.name,
+            "Тикер": t,
+            "Шаг цены": inst.min_step,
+            "Стоимость шага цены": inst.step_price,
+            "ГО LONG": inst.margin_long,
+            "ГО SHORT": inst.margin_short,
+            "Доступно контрактов": max_contracts,
+            "Рыночная цена": inst.price,
+            "Свободно для сделок": "",  # Оставляем пустым как в примере
+            "Дата экспирации": format_date(inst.expiry),
+            "Процент от депо": "100%", # Как в вашем примере
+            "Обновлено": update_time,
+            "Риск (ГО, %)": risk_pct,
+            "Тренд": m["trend"],
+            "Волна": m["wave"],
+            "Тенденция": m["tendency"],
         })
         
     df = pd.DataFrame(rows)
 
     st.markdown("#### Таблица данных")
-    MOBILE_COLS = ["Тикер", "Цена", "ГО", "Доступно", "Тренд", "Волна", "Тенденция"]
+    
+    # Настраиваем формат чисел (динамические знаки после запятой)
+    step_fmt = f"%.{int(inst.decimals)}f" if 'inst' in locals() else "%.4f"
     
     edited_df = st.data_editor(
         df, use_container_width=True, hide_index=True,
-        column_order=MOBILE_COLS if mobile else None,
         column_config={
+            "Шаг цены": st.column_config.NumberColumn(format=step_fmt),
+            "Стоимость шага цены": st.column_config.NumberColumn(format=step_fmt),
+            "ГО LONG": st.column_config.NumberColumn(format="%.2f ₽"),
+            "ГО SHORT": st.column_config.NumberColumn(format="%.2f ₽"),
+            "Доступно контрактов": st.column_config.NumberColumn(format="%d"),
+            "Рыночная цена": st.column_config.NumberColumn(format="%.2f"),
+            "Риск (ГО, %)": st.column_config.ProgressColumn(format="%.2f%%", min_value=0, max_value=100),
             "Тренд": st.column_config.SelectboxColumn("Тренд", options=TREND_VALUES, required=True),
             "Волна": st.column_config.SelectboxColumn("Волна", options=TREND_VALUES, required=True),
             "Тенденция": st.column_config.SelectboxColumn("Тенденция", options=TREND_VALUES, required=True),
-            "Шаг цены": st.column_config.NumberColumn(format="%.4f"),
-            "Ст. шага": st.column_config.NumberColumn(format="%.4f"),
-            "ГО": st.column_config.NumberColumn(format="%.2f ₽"),
-            "Цена": st.column_config.NumberColumn(format="%.2f"),
-            "Риск, %": st.column_config.ProgressColumn(format="%.2f%%", min_value=0, max_value=100),
         },
-        disabled=["Код", "Наименование", "Тикер", "Шаг цены", "Ст. шага", "ГО", "Цена", "Доступно"],
+        disabled=["Код контракта", "Наименование контракта", "Тикер", "Шаг цены", "Стоимость шага цены", "ГО LONG", "ГО SHORT", "Доступно контрактов", "Рыночная цена", "Свободно для сделок", "Дата экспирации", "Процент от депо", "Обновлено", "Риск (ГО, %)"],
         key="main_table_editor"
     )
 
