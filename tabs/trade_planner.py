@@ -270,9 +270,13 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     if m1_zig  and tf_name == "M1": charts.draw_zigzag(fig, m1_zig, "#ef5350", "Зигзаг (M1)")
 
     if h1_zig and tf_name == "H1":
-        if show_rr: charts.draw_rr_zones(fig, h1_zig, strategy)
         breakouts = analyze_manual_zigzag(h1_zig, view)
         charts.draw_breakouts(fig, breakouts, inst.decimals)
+        
+        if show_rr and breakouts:
+            last_b = breakouts[-1]
+            charts.draw_rr_zones(fig, last_b["pullback_setup_time"], last_b["pullback_setup_price"], last_b["peak_time"], last_b["peak_price"], strategy)
+
         if breakouts:
             st.markdown("##### Анализ пробоев и откатов H1")
             df_metrics = pd.DataFrame([{
@@ -282,12 +286,11 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
                 "Пробой %": f"{b['breakout_pct']:.1f}%",
                 "Бары (П/О)": f"{b['bars']} / {b['retr_bars']}",
                 "Объем (П/О)": f"{b['volume']:,.0f} / {b['retr_vol']:,.0f}",
-                "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный", "base": "Базовый"}.get(b.get("breakout_verdict"), "-"),
+                "Оценка пробоя": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b.get("breakout_verdict"), "-"),
                 "Откат E": b["e_price"] if b["has_pullback"] else "-",
-                "E vs B": b["e_vs_b"] if b["has_pullback"] else "-",
+                "E vs 0.5": b["e_vs_b"] if b["has_pullback"] else "-",
                 "Откат %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                "Оценка отката": {"strong": "Сильный", "weak": "Слабый", "normal": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-",
-                "Срав. откатов": f"{b['retracement_ratio']:.2f}x" if b.get("retracement_ratio") else "-"
+                "Оценка отката": {"Сильный": "Сильный", "Слабый": "Слабый", "Нормальный": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-"
             } for b in breakouts])
             st.dataframe(df_metrics, use_container_width=True, hide_index=True)
 
