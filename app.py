@@ -83,7 +83,11 @@ mobile = bool(G["mobile_view"])
 iss_df, ims_df = fetch_moex_forts(), fetch_moex_ims()
 api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 
-tab_market, tab_screen, tab_plan = st.tabs(["Биржа", "Скринер", "Планировщик"])
+# === ДИНАМИЧЕСКОЕ НАЗВАНИЕ ВКЛАДКИ ===
+tickers = state.active_tickers()
+tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" if tickers else "Калькуляторы фьючерсов"
+
+tab_market, tab_screen, tab_plan = st.tabs(["Биржа", "Скринер", tab_plan_name])
 
 with tab_market:
     render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
@@ -92,7 +96,6 @@ with tab_screen:
     render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], commission=G["commission"], mobile=mobile)
 
 with tab_plan:
-    tickers = state.active_tickers()
     if not tickers:
         st.info("Добавьте инструменты на вкладке «Биржа».")
     else:
