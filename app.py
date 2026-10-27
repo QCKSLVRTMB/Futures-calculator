@@ -11,13 +11,14 @@ from tabs.screener import render_screener
 from tabs.trade_planner import render_trade_planner
 from ui.theme import inject_css, seg
 
-st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="collapsed")
+# ИСПРАВЛЕНО: initial_sidebar_state="expanded", чтобы меню не пропадало
+st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="expanded")
 inject_css()
 
 # === КОМПАКТНЫЙ ЗАГОЛОВОК С ЛОГО В ПРАВОМ УГЛУ ===
 col1, col2 = st.columns([5, 1])
 with col1:
-    st.markdown("<h1 style='color: #0F172A; margin: 0; padding-top: 0.5rem; font-size: 2rem;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='color: #0F172A; margin: 0; font-size: 2rem;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #475569; margin: 0; font-size: 16px;'>сообщества QCKSLVR TRADING</p>", unsafe_allow_html=True)
 with col2:
     if os.path.exists("logo.png"):
