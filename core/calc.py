@@ -93,7 +93,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
     entry, user_qty = calc_avg_entry(entries, inst.price)
     
     warnings = []
-    if not sl or sl <= 0:
+    if sl is None or sl <= 0:
         warnings.append("Не задан стоп-лосс — сайзинг невозможен.")
         sl = 0.0
         
@@ -106,18 +106,18 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
             warnings.append("SHORT: стоп должен быть **выше** входа.")
 
     # Автоматический расчет TP, если не задан
-    if (not tp or tp <= 0) and sl > 0 and entry > 0:
+    if (tp is None or tp <= 0) and sl > 0 and entry > 0:
         tp = inst.round_price(entry + (abs(entry - sl) * rr_ratio * sign))
-    elif tp > 0 and entry > 0:
+    elif tp is not None and tp > 0 and entry > 0:
         if direction == "LONG" and tp <= entry: warnings.append("LONG: тейк должен быть **выше** входа.")
         if direction == "SHORT" and tp >= entry: warnings.append("SHORT: тейк должен быть **ниже** входа.")
 
     risk_pts = abs(entry - sl) if sl > 0 else 0.0
-    rew_pts = abs(tp - entry) if tp and tp > 0 else 0.0
+    rew_pts = abs(tp - entry) if tp is not None and tp > 0 else 0.0
     
     fee_entry = commission_per_side(inst, entry, tariff)
     fee_sl = commission_per_side(inst, sl, tariff) if sl > 0 else 0.0
-    fee_tp = commission_per_side(inst, tp, tariff) if tp and tp > 0 else 0.0
+    fee_tp = commission_per_side(inst, tp, tariff) if tp is not None and tp > 0 else 0.0
 
     risk_per_ct = (risk_pts * pv) + fee_entry + fee_sl
     reward_per_ct = (rew_pts * pv) - fee_entry - fee_tp
@@ -145,7 +145,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
         "entry": entry, "sl": sl, "tp": tp, "direction": direction, "point_value": pv,
         "risk_pts": risk_pts, "reward_pts": rew_pts,
         "fee_entry": fee_entry, "fee_sl": fee_sl, "fee_tp": fee_tp,
-        "fee_per_contract": fee_entry + (fee_tp if tp and tp > 0 else fee_sl),
+        "fee_per_contract": fee_entry + (fee_tp if tp is not None and tp > 0 else fee_sl),
         "risk_per_contract": risk_per_ct,
         "qty_by_risk": qty_by_risk, "qty_by_margin": qty_by_margin, "qty_recommended": qty_rec, "qty": qty,
         "risk_budget": risk_budget, "risk_rub": total_risk, "risk_pct_fact": (total_risk / deposit * 100) if deposit else 0.0,
