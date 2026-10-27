@@ -97,32 +97,45 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
 
     risk_pts = abs(entry - sl) if (sl and entry) else 0.0
     rew_pts = abs(tp - entry) if (tp and entry) else 0.0
-    fee = commission_per_side(inst, entry, tariff)
-    fee_rt = fee * 2
+    
+    # Точные комиссии
+    fee_entry = commission_per_side(inst, entry, tariff)
+    fee_sl = commission_per_side(inst, sl, tariff) if sl else 0.0
+    fee_tp = commission_per_side(inst, tp, tariff) if tp else 0.0
 
-    risk_per_ct = risk_pts * pv + fee_rt
+    risk_per_ct = (risk_pts * pv) + fee_entry + fee_sl
+    reward_per_ct = (rew_pts * pv) - fee_entry - fee_tp
+
     risk_budget = deposit * risk_pct / 100.0
     margin = inst.margin(direction)
+    leverage = (entry * pv) / margin if margin > 0 else 0.0
 
     qty_by_risk = int(risk_budget // risk_per_ct) if risk_per_ct > 0 else 0
     qty_by_margin = int((deposit * max_margin_util / 100.0) // margin) if margin > 0 else 0
     qty_rec = max(0, min(qty_by_risk, qty_by_margin) if qty_by_margin else qty_by_risk)
+    
     qty = planned_qty or qty_rec
 
     total_risk = risk_per_ct * qty
-    total_reward = rew_pts * pv * qty - fee_rt * qty
+    total_reward = reward_per_ct * qty
+    
     return {
         "entry": entry, "sl": sl, "tp": tp, "direction": direction, "point_value": pv,
-        "risk_pts": risk_pts, "reward_pts": rew_pts, "fee_per_contract": fee_rt, "risk_per_contract": risk_per_ct,
+        "risk_pts": risk_pts, "reward_pts": rew_pts,
+        "fee_entry": fee_entry, "fee_sl": fee_sl, "fee_tp": fee_tp,
+        "fee_per_contract": fee_entry + fee_sl,
+        "risk_per_contract": risk_per_ct,
         "qty_by_risk": qty_by_risk, "qty_by_margin": qty_by_margin, "qty_recommended": qty_rec, "qty": qty,
         "risk_budget": risk_budget, "risk_rub": total_risk, "risk_pct_fact": (total_risk / deposit * 100) if deposit else 0.0,
         "reward_rub": total_reward, "rr": (total_reward / total_risk) if total_risk > 0 else 0.0,
         "margin_total": margin * qty, "margin_pct": (margin * qty / deposit * 100) if deposit else 0.0,
-        "breakeven": inst.round_price(entry + sign * (fee_rt / pv)) if pv else entry, "notional": entry * pv * qty,
-        "warnings": _warnings(direction, entry, sl, tp, qty, qty_by_margin, qty_by_risk),
+        "breakeven": inst.round_price(entry + sign * (fee_entry + fee_sl) / pv) if pv else entry, 
+        "notional": entry * pv * qty,
+        "leverage": leverage,
+        "warnings": _warnings(direction, entry, sl, tp, qty, qty_by_margin, qty_by_risk, total_risk, risk_budget),
     }
 
-def _warnings(direction, entry, sl, tp, qty, qty_m, qty_r) -> list[str]:
+def _warnings(direction, entry, sl, tp, qty, qty_m, qty_r, total_risk, risk_budget) -> list[str]:
     w = []
     if not sl: w.append("Не задан стоп-лосс — сайзинг невозможен.")
     elif direction == "LONG" and sl >= entry: w.append("LONG: стоп должен быть **ниже** входа.")
@@ -130,13 +143,18 @@ def _warnings(direction, entry, sl, tp, qty, qty_m, qty_r) -> list[str]:
     if tp:
         if direction == "LONG" and tp <= entry: w.append("LONG: тейк должен быть **выше** входа.")
         if direction == "SHORT" and tp >= entry: w.append("SHORT: тейк должен быть **ниже** входа.")
-    if qty == 0: w.append("Расчётный объём = 0: уменьшите стоп или увеличьте риск/депозит.")
+    
+    if total_risk > risk_budget:
+        w.append(f"ВНИМАНИЕ: Стоп превышает допустимый риск! Убыток ({total_risk:,.2f} ₽) больше лимита ({risk_budget:,.2f} ₽).")
+    
+    if qty == 0: 
+        w.append("Расчётный объём = 0: уменьшите стоп или увеличьте риск/депозит.")
     if qty_m and qty > qty_m: w.append(f"Объём превышает лимит по ГО ({qty_m} контр.).")
     if qty_r and qty > qty_r: w.append(f"Объём превышает риск-лимит ({qty_r} контр.).")
     return w
 
 # ==========================================
-# АНАЛИТИКА ГРАФИКОВ (Зигзаги, пробои, кластеры)
+# АНАЛИТИКА ГРАФИКОВ
 # ==========================================
 def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up=True):
     df_period = df.loc[start_time:end_time]
@@ -251,7 +269,7 @@ def analyze_manual_zigzag(pts, df):
                 "e_vs_b": e_vs_b
             })
 
-    # Расчет сравнительных коэффициентов (сила/слабость)
+    # Расчет сравнительных коэффициентов
     for i, brk in enumerate(breakouts):
         if i == 0:
             brk['breakout_verdict'] = "base"
@@ -259,7 +277,6 @@ def analyze_manual_zigzag(pts, df):
             brk['retracement_ratio'] = None
         else:
             prev = breakouts[i-1]
-            # Сравнение пробоев
             if prev['delta'] > 0:
                 ratio = brk['delta'] / prev['delta']
                 brk['breakout_ratio'] = ratio
@@ -270,7 +287,6 @@ def analyze_manual_zigzag(pts, df):
                 brk['breakout_ratio'] = None
                 brk['breakout_verdict'] = "normal"
 
-            # Сравнение откатов (если есть)
             if prev.get('retracement_pct') and brk.get('retracement_pct'):
                 r_ratio = brk['retracement_pct'] / prev['retracement_pct'] if prev['retracement_pct'] > 0 else None
                 brk['retracement_ratio'] = r_ratio
