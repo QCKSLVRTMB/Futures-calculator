@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+import os
 import streamlit as st
 
 from core import state, storage
@@ -10,8 +11,23 @@ from tabs.screener import render_screener
 from tabs.trade_planner import render_trade_planner
 from ui.theme import inject_css, seg
 
-st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="collapsed")
 inject_css()
+
+# === ГЛАВНЫЙ ЗАГОЛОВОК И ЛОГОТИП ===
+st.markdown("<h1 style='text-align: center; color: #0F172A; margin-bottom: 0;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #475569; margin-top: 0; margin-bottom: 20px;'>сообщества QCKSLVR TRADING</h3>", unsafe_allow_html=True)
+
+if os.path.exists("logo.png"):
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.image("logo.png", use_column_width=True)
+elif os.path.exists("logo.jpg"):
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.image("logo.jpg", use_column_width=True)
+
+st.write("") # Отступ
 
 S = state.get_state()
 G = S["global"]
@@ -20,7 +36,7 @@ def _sync(key, gkey):
     state.set_global(gkey, st.session_state[key])
 
 with st.sidebar:
-    st.header("⚙️ Параметры")
+    st.header("Параметры")
     
     profiles = storage.list_profiles()
     current_prof = state.profile()
@@ -45,15 +61,15 @@ with st.sidebar:
     st.slider("Макс. использование депо под ГО, %", 10, 100, int(G.get("max_margin_util", 50)), 5, key="sb_mmu", on_change=_sync, args=("sb_mmu", "max_margin_util"))
     st.selectbox("Комиссия", list(TARIFF_CONFIGS), key="sb_comm", index=list(TARIFF_CONFIGS).index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
     st.selectbox("Тип ГО", MARGIN_LEVELS, key="sb_margin", index=MARGIN_LEVELS.index(G["margin_type"]), format_func=lambda x: MARGIN_HINTS.get(x, x), on_change=_sync, args=("sb_margin", "margin_type"))
-    st.toggle("📱 Мобильный вид", key="sb_mobile", value=bool(G["mobile_view"]), on_change=_sync, args=("sb_mobile", "mobile_view"))
+    st.toggle("Мобильный вид", key="sb_mobile", value=bool(G["mobile_view"]), on_change=_sync, args=("sb_mobile", "mobile_view"))
 
-    if st.button("🔄 Обновить котировки", use_container_width=True):
+    if st.button("Обновить котировки", use_container_width=True):
         fetch_moex_forts.clear(); fetch_moex_ims.clear()
         st.rerun()
 
     st.divider()
-    st.caption("💾 Сессия")
-    st.download_button("Экспорт .futures", data=storage.dumps(S), file_name=datetime.now().strftime("%d.%m.%y_%H-%M") + ".futures", mime="application/json", use_container_width=True)
+    st.header("Управление настройками")
+    st.download_button("Экспорт сессии", data=storage.dumps(S), file_name=datetime.now().strftime("%d.%m.%y_%H-%M") + ".futures", mime="application/json", use_container_width=True)
     up = st.file_uploader("Импорт", type=["futures", "json"], label_visibility="collapsed")
     if up and st.button("Применить импорт", type="primary", use_container_width=True):
         parsed = storage.loads(up.getvalue().decode("utf-8"))
@@ -69,7 +85,7 @@ mobile = bool(G["mobile_view"])
 iss_df, ims_df = fetch_moex_forts(), fetch_moex_ims()
 api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 
-tab_market, tab_screen, tab_plan = st.tabs(["🏛 Биржа", "🔎 Скринер", "🎯 Планировщик"])
+tab_market, tab_screen, tab_plan = st.tabs(["Биржа", "Скринер", "Планировщик"])
 
 with tab_market:
     render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
