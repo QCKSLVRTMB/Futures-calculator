@@ -54,7 +54,7 @@ with st.sidebar:
 
     st.selectbox("Стратегия", ["Зигзаг тенденции", "Свинг торговля"], key="sb_strategy", index=0 if G["strategy"] == "Зигзаг тенденции" else 1, on_change=_sync, args=("sb_strategy", "strategy"))
     st.number_input("Депозит, ₽", min_value=1000, step=1000, value=int(G["deposit"]), key="sb_deposit", on_change=_sync, args=("sb_deposit", "deposit"))
-    st.number_input("Риск на сделку, %", 0.1, 100.0, float(G["risk_pct"]), 0.1, key="sb_risk", on_change=_sync, args=("sb_risk", "risk_pct"))
+    st.number_input("Допустимый риск в сделке, %", 0.1, 100.0, float(G["risk_pct"]), 0.1, key="sb_risk", on_change=_sync, args=("sb_risk", "risk_pct"))
     st.number_input("Risk/Reward (1 к ...)", 1.0, 20.0, float(G["rr_ratio"]), 0.5, key="sb_rr", on_change=_sync, args=("sb_rr", "rr_ratio"))
     st.slider("Макс. использование депо под ГО, %", 10, 100, int(G.get("max_margin_util", 50)), 5, key="sb_mmu", on_change=_sync, args=("sb_mmu", "max_margin_util"))
     st.selectbox("Комиссия", list(TARIFF_CONFIGS), key="sb_comm", index=list(TARIFF_CONFIGS).index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
