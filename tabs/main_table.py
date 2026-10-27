@@ -12,7 +12,7 @@ def update_active_tickers():
     state.autosave(force=True)
 
 def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobile=False):
-    st.subheader("📊 Данные с биржи")
+    st.subheader("Данные с биржи")
 
     if not iss_df.empty and "VALTODAY" in iss_df.columns:
         active_iss = iss_df[iss_df["VALTODAY"].fillna(0) > 0]
@@ -37,7 +37,7 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
 
     picked = st.session_state["active_tickers"]
     if not picked:
-        st.info("👆 Выберите хотя бы один тикер для отображения данных.")
+        st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
     col_go, _ = MARGIN_COL_MAP.get(margin_type, (4, 5))
