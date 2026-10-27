@@ -3,12 +3,11 @@ import streamlit as st
 
 CSS = """
 <style>
-  .block-container{padding-top:1.2rem;padding-bottom:3.5rem;}
+  .block-container{padding-top:1rem;padding-bottom:3.5rem;}
   div[data-testid="stToolbar"]{visibility:hidden;height:0;}
   div[data-baseweb="tab-list"]{overflow-x:auto;scrollbar-width:none;}
   div[data-baseweb="tab-list"]::-webkit-scrollbar{display:none;}
 
-  /* ===== Карточки (светлая тема) ===== */
   .fc-cards{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
   .fc-card{
     background:#FFFFFF;
@@ -23,7 +22,6 @@ CSS = """
   .fc-bad{color:#D32F2F !important;}
   .fc-warn{color:#C77800 !important;}
 
-  /* Плотные таблицы/графики — чёрные бары как раньше, светлый фон */
   div[data-testid="stPlotlyChart"]{background:#FFFFFF;border-radius:10px;}
 
   @media (max-width: 640px){
@@ -43,13 +41,26 @@ def inject_css() -> None:
         st.markdown(CSS, unsafe_allow_html=True)
         st.session_state["_css_done"] = True
 
-def cards(items: list[tuple[str, str, str]]) -> None:
-    html = "".join(
-        f'<div class="fc-card"><div class="lbl">{l}</div>'
-        f'<div class="val fc-{c}">{v}</div></div>'
-        for l, v, c in items
-    )
-    st.markdown(f'<div class="fc-cards">{html}</div>', unsafe_allow_html=True)
+def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
+    """Рисует таблицу параметров (на мобиле — карточки)."""
+    if mobile:
+        html = "<div style='display:flex; flex-direction:column; gap:6px;'>"
+        for label, value, status in items:
+            color = "color: #16a34a;" if status == "ok" else ("color: #dc2626;" if status == "bad" else ("color: #d97706;" if status == "warn" else "color: #0f172a;"))
+            html += f"""
+            <div style="background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">
+                <span style="color:#64748b; font-size:13px;">{label}</span>
+                <span style="font-weight:600; font-size:15px; {color}">{value}</span>
+            </div>"""
+        html += "</div>"
+    else:
+        html = "<table style='width:100%; border-collapse:collapse; font-size:14px; margin-bottom: 1rem;'>"
+        html += "<thead><tr><th style='text-align:left; padding:10px; border-bottom:2px solid #cbd5e1; color:#475569; font-weight: 600;'>Параметр</th><th style='text-align:right; padding:10px; border-bottom:2px solid #cbd5e1; color:#475569; font-weight: 600;'>Значение</th></tr></thead><tbody>"
+        for label, value, status in items:
+            color = "color: #16a34a;" if status == "ok" else ("color: #dc2626;" if status == "bad" else ("color: #d97706;" if status == "warn" else "color: #0f172a;"))
+            html += f"<tr><td style='padding:10px; border-bottom:1px solid #e2e8f0; color:#334155;'>{label}</td><td style='text-align:right; padding:10px; border-bottom:1px solid #e2e8f0; font-weight:600; {color}'>{value}</td></tr>"
+        html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def fragment(fn):
     f = getattr(st, "fragment", None) or getattr(st, "experimental_fragment", None)
