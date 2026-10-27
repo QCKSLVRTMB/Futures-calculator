@@ -1,7 +1,7 @@
 from __future__ import annotations
-
 from datetime import datetime, timedelta
 from io import StringIO
+import time
 import pandas as pd
 import requests
 import streamlit as st
@@ -20,7 +20,10 @@ USE_GSHEETS = bool(SHEET_ID) and "ВАШ_ID" not in SHEET_ID
 def _session() -> requests.Session:
     s = requests.Session()
     s.headers.update({"User-Agent": "futures-calc/2.0"})
-    s.mount("https://", HTTPAdapter(max_retries=Retry(total=3, backoff_factor=0.4, status_forcelist=(429, 500, 502, 503, 504)), pool_maxsize=8))
+    s.mount("https://", HTTPAdapter(
+        max_retries=Retry(total=5, backoff_factor=0.5, status_forcelist=(429, 500, 502, 503, 504), raise_on_status=False),
+        pool_maxsize=8
+    ))
     return s
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -61,7 +64,7 @@ def _subset(raw: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_moex_forts() -> pd.DataFrame:
     try:
-        r = _session().get(MOEX_URL, timeout=15)
+        r = _session().get(MOEX_URL, timeout=30)
         r.raise_for_status()
         js = r.json()
         sec = pd.DataFrame(js["securities"]["data"], columns=js["securities"]["columns"])
@@ -113,11 +116,14 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
             r.raise_for_status()
             block = r.json().get("candles") or {}
         except Exception: break
+        
         data = block.get("data") or []
         if not data: break
         chunks.append(pd.DataFrame(data, columns=block["columns"]))
+        
         if len(data) < 500: break
         start += 500
+        time.sleep(0.1)  # Пауза 100 мс между страницами, чтобы не словить ConnectionResetError
 
     if not chunks: return pd.DataFrame()
     df = pd.concat(chunks, ignore_index=True).drop_duplicates(subset=["begin"])
