@@ -8,7 +8,7 @@ from core import charts, state
 from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, find_volume_clusters
 from core.config import DIRECTIONS, INTERVALS, TOOLS
 from core.market import fetch_moex_candles
-from ui.theme import kv_data, fragment, money, num, seg
+from ui.theme import kv_data, fragment, money, num, seg, format_date
 
 def render_trade_planner(*, ticker, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=None, deposit=75000.0, risk_pct=1.0, rr_ratio=3.0, commission="Т-Инвестиции", strategy="Зигзаг тенденции", mobile=False):
     inst = get_instrument(ticker, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=state.g("margin_type"))
@@ -26,7 +26,7 @@ def _header(inst, tdata, mobile):
         ("Шаг / ст. шага", f"{num(inst.min_step, 4)} / {num(inst.step_price)}", ""),
         ("1 пункт", money(inst.point_value), ""),
         ("ГО LONG / SHORT", f"{num(inst.margin_long, 0)} / {num(inst.margin_short, 0)}", ""),
-        ("Экспирация", str(inst.expiry)[:10], ""),
+        ("Экспирация", format_date(inst.expiry), ""),  # <--- ИСПОЛЬЗУЕМ format_date
         ("Открытый интерес", f"{num(inst.open_interest, 0)} контр.", ""),
         ("Стоимость контракта", money(inst.notional), ""),
     ]
