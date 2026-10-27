@@ -2,9 +2,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+# ИСПРАВЛЕНО: padding-top увеличен с 1rem до 4rem, чтобы верхняя панель браузера/Streamlit не перекрывала заголовок
 CSS = """
 <style>
-  .block-container{padding-top:1rem;padding-bottom:3.5rem;}
+  .block-container{padding-top:4rem; padding-bottom:3.5rem;}
   div[data-testid="stToolbar"]{visibility:hidden;height:0;}
   div[data-baseweb="tab-list"]{overflow-x:auto;scrollbar-width:none;}
   div[data-baseweb="tab-list"]::-webkit-scrollbar{display:none;}
@@ -26,7 +27,7 @@ CSS = """
   div[data-testid="stPlotlyChart"]{background:#FFFFFF;border-radius:10px;}
 
   @media (max-width: 640px){
-    .block-container{padding-left:.6rem;padding-right:.6rem;padding-top:.6rem;}
+    .block-container{padding-left:.6rem;padding-right:.6rem;padding-top:3.5rem;}
     h1{font-size:1.3rem!important;} h2{font-size:1.1rem!important;} h3{font-size:1rem!important;}
     .stButton button, .stDownloadButton button{min-height:44px;width:100%;}
     div[data-testid="stMetricValue"]{font-size:1.05rem;}
@@ -53,13 +54,11 @@ def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
     if mobile:
         html = "<div style='display:flex; flex-direction:column; gap:6px;'>"
         for label, value, status in items:
-            # Базовые стили карточки
             row_style = "background:#fff; border:1px solid #e2e8f0;"
             lbl_color = "color:#64748b;"
             val_color = "color:#0f172a;"
 
             if status == "fail":
-                # Эффект маркера: фон только вокруг текста
                 val_color = "background-color:#ef5350; color:#000000; padding:2px 6px; border-radius:4px;"
             elif status == "ok":
                 val_color = "color:#16a34a;"
@@ -88,7 +87,6 @@ def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
             elif status == "warn":
                 val_color = "color: #d97706;"
 
-            # Значение обернуто в span, чтобы фон применялся только к тексту
             html += f"<tr><td style='padding:10px; border-bottom:1px solid #e2e8f0; color:#334155;'>{label}</td><td style='text-align:right; padding:10px; border-bottom:1px solid #e2e8f0; font-weight:600;'><span style='{val_color}'>{value}</span></td></tr>"
         html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
