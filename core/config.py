@@ -34,22 +34,24 @@ TARIFF_CONFIGS = {
     "Без комиссии": {"type": "fixed", "broker_fee": 0.0, "clearing_fee": 0.0, "min_fee": 0.0},
 }
 
-# Интервалы, взятые из вашего trade_planner.py
+# Таймфреймы: D1, H1, M10 и M1 (последний — с ~10x барами от M10)
 INTERVALS = {
     "D1":  {"interval": 24, "days_back": 250, "is_intraday": False, "label": "D1 (Дни)"},
     "H1":  {"interval": 60, "days_back": 30,  "is_intraday": True,  "label": "H1 (Часы)"},
     "M10": {"interval": 10, "days_back": 5,   "is_intraday": True,  "label": "M10 (10 минут)"},
+    "M1":  {"interval": 1,  "days_back": 5,   "is_intraday": True,  "label": "M1 (1 минута)"},
 }
 
-# ВАЖНО: storage.py использует TIMEFRAMES для создания дефолтных словарей
 TIMEFRAMES = list(INTERVALS.keys())
 
 TOOLS = {
     "channel": "D1: Канал",
     "fib_d1":  "D1: Уровень 1/2",
-    "zigzag":  "H1: Зигзаг",
+    "zigzag":  "Зигзаг",
     "fib_h1":  "H1: Уровень 1/2",
 }
+
+FIB_LEVELS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618]
 
 DEFAULT_GLOBAL = {
     "strategy": "Зигзаг тенденции",
