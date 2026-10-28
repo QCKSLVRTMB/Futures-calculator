@@ -346,26 +346,74 @@ def get_volume_colors(df, tf_name, sensitivity=3.0):
     return colors
 
 
-def calculate_volume_clusters(df, tf_name, sensitivity=3.0):
-    """Возвращает зоны кластеров для отрисовки с наложением (профиль объема)."""
-    if df.empty: return []
+def calculate_volume_profile(df, tf_name="M10", bins=50, sensitivity=3.0):
+    """Рассчитывает горизонтальный профиль объема на основе отфильтрованных баров."""
+    if df.empty or 'Volume' not in df.columns: return []
+    
+    # 1. Берем цвета из той же функции, что и для гистограммы (M10 -> красные, черные)
     colors = get_volume_colors(df, tf_name, sensitivity)
-    volumes = df['Volume'].values
     anomaly_color = "red" if tf_name in ("M10", "M1") else ("green" if tf_name == "H1" else ("blue" if tf_name == "D1" else None))
     
-    zones = []
+    valid_indices = []
     for i in range(len(df)):
-        if colors[i] in ("black", anomaly_color):
-            row = df.iloc[i]
-            is_buy = float(row['Close']) > float(row['Open'])
-            y_low = float(row['Low']) if is_buy else float(row['Close'])
-            y_high = float(row['Close']) if is_buy else float(row['High'])
-            if y_high > y_low:
-                zones.append({
-                    "time": df.index[i],
-                    "low": y_low,
-                    "high": y_high,
-                    "is_buy": is_buy,
-                    "volume": float(volumes[i])
-                })
+        if colors[i] == "black" or colors[i] == anomaly_color:
+            valid_indices.append(i)
+            
+    if not valid_indices: return []
+    
+    df_valid = df.iloc[valid_indices]
+    price_min = df_valid['Low'].min()
+    price_max = df_valid['High'].max()
+    if price_max <= price_min: return []
+    
+    bin_size = (price_max - price_min) / bins
+    
+    buy_vols = np.zeros(bins)
+    sell_vols = np.zeros(bins)
+    
+    # 2. Распределяем объем отфильтрованных баров по ценовым бинам
+    for _, row in df_valid.iterrows():
+        vol = float(row['Volume'])
+        is_buy = float(row['Close']) > float(row['Open'])
+        y_low = float(row['Low']) if is_buy else float(row['Close'])
+        y_high = float(row['Close']) if is_buy else float(row['High'])
+        
+        start_bin = int((y_low - price_min) / bin_size)
+        end_bin = int((y_high - price_min) / bin_size)
+        start_bin = max(0, min(start_bin, bins-1))
+        end_bin = max(0, min(end_bin, bins-1))
+        
+        n_bins = end_bin - start_bin + 1
+        vol_per_bin = vol / n_bins
+        
+        for b in range(start_bin, end_bin + 1):
+            if is_buy: buy_vols[b] += vol_per_bin
+            else: sell_vols[b] += vol_per_bin
+            
+    total_vols = buy_vols + sell_vols
+    max_vol = total_vols.max()
+    if max_vol == 0: return []
+    
+    # 3. Формируем зоны для отрисовки
+    zones = []
+    for b in range(bins):
+        if total_vols[b] == 0: continue
+        
+        low_price = price_min + b * bin_size
+        high_price = low_price + bin_size
+        
+        # Доминирующий цвет
+        is_buy_dominant = buy_vols[b] >= sell_vols[b]
+        color = "rgba(38, 166, 154, " if is_buy_dominant else "rgba(239, 83, 80, "
+        
+        # Прозрачность от 1% до 15% в зависимости от объема
+        opacity = 0.15 * (total_vols[b] / max_vol)
+        opacity = max(0.01, min(0.15, opacity))
+        
+        zones.append({
+            "low": low_price,
+            "high": high_price,
+            "color_base": color,
+            "opacity": opacity
+        })
     return zones
