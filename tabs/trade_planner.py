@@ -5,7 +5,7 @@ import time
 
 import rules
 from core import charts, state
-from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, find_volume_clusters
+from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, calculate_volume_clusters
 from core.config import DIRECTIONS, INTERVALS, TOOLS
 from core.market import fetch_moex_candles
 from ui.theme import kv_data, fragment, money, num, seg, format_date
@@ -160,15 +160,19 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     with c2:
         if mobile:
             show_rr = st.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_clusters = st.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}") if tf_name == "H1" else False
+            show_clusters = st.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}")
             show_position = st.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
             show_info = st.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
         else:
             cc1, cc2, cc3, cc4 = st.columns(4)
             show_rr = cc1.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_clusters = cc2.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}") if tf_name == "H1" else False
+            show_clusters = cc2.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}")
             show_position = cc3.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
             show_info = cc4.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
+
+    cluster_sens = 3.0
+    if show_clusters:
+        cluster_sens = st.slider("Чувствительность кластеров", min_value=1.0, max_value=10.0, value=3.0, step=0.5, key=f"clu_sens_{ticker}_{tf_name}", help="Минимальный объем бара в разах от среднего. Меньше — больше зон, больше — только самые сильные.")
 
     chart_data = tdata["charts"][tf_name]
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
@@ -191,7 +195,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
 
     zoom_start = None
     if tf_name == "H1" and len(d1_pts) == 3:
-        zoom_start = d1_pts[2][0]   # ИСПРАВЛЕНО: берем точку 2-го клика (индекс 2)
+        zoom_start = d1_pts[2][0]
     elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4:
         zoom_start = h1_zig[-4][0]
 
@@ -280,7 +284,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
                 state.autosave(force=True)
                 st.rerun(scope="fragment")
 
-    # Снаппинг точек
     if tf_name == "D1":
         d1_pts_s = snap_points(d1_pts, view)
         d1_fib_s = snap_points(tdata["charts"]["D1"]["fib"], view)
@@ -302,7 +305,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
         h1_fib_s = tdata["charts"]["H1"]["fib"]
         m10_zig_s = snap_points(tdata["charts"]["M10"]["zigzag"], view)
         m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
-    else:  # M1
+    else:
         d1_pts_s = d1_pts
         d1_fib_s = tdata["charts"]["D1"]["fib"]
         h1_zig_s = h1_zig
@@ -319,10 +322,10 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
-    if show_clusters and tf_name == "H1":
-        clusters = find_volume_clusters(view)
-        charts.draw_clusters(fig, clusters, x_left, x_right)
-        st.caption(f"Аномальных баров H1: {len(clusters)}")
+    if show_clusters:
+        clusters = calculate_volume_clusters(view, tf_name, cluster_sens)
+        charts.draw_clusters(fig, clusters, x_right)
+        st.caption(f"Кластеров: {len(clusters)}")
 
     if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
     if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
