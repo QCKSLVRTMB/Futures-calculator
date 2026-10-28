@@ -77,12 +77,23 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
 
     st.markdown("#### Графики рынка")
     
+    # === ТУМБЛЕРЫ КЛАСТЕРОВ ===
     c_tog1, c_tog2 = st.columns(2)
     with c_tog1:
-        show_clusters = st.toggle("Кластеры объемов (M10)", value=tdata.get("show_clusters", False), key=f"clu_{ticker}", help="Анализ объемов M10 от 2-й точки канала D1.")
+        show_clusters = st.toggle(
+            "Кластеры объемов (M10)", 
+            value=tdata.get("show_clusters", False), 
+            key=f"clu_{ticker}", 
+            help="Анализ объемов M10 от 2-й точки канала D1 до текущего бара."
+        )
         tdata["show_clusters"] = show_clusters
     with c_tog2:
-        show_custom_clusters = st.toggle("Диапазон кластеров (D1)", value=tdata.get("show_custom_clusters", False), key=f"clu_custom_{ticker}", help="Кластеры в заданном вами диапазоне на D1.")
+        show_custom_clusters = st.toggle(
+            "Диапазон кластеров (D1)", 
+            value=tdata.get("show_custom_clusters", False), 
+            key=f"clu_custom_{ticker}", 
+            help="Кластеры в заданном вами диапазоне D1 (инструмент 'Диапазон кластеров')."
+        )
         tdata["show_custom_clusters"] = show_custom_clusters
 
     clusters_data = []
@@ -91,7 +102,14 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     if show_clusters or show_custom_clusters:
         c1, c2 = st.columns([1, 2])
         with c1:
-            overlap_pct = st.slider("Порог отсечения", min_value=10, max_value=100, value=tdata.get("cluster_threshold", 50), step=5, key=f"clu_bins_{ticker}", help="10 = показать все зоны, 100 = только максимальный объём (POC)")
+            overlap_pct = st.slider(
+                "Порог отсечения", 
+                min_value=10, max_value=100, 
+                value=tdata.get("cluster_threshold", 50), 
+                step=5, 
+                key=f"clu_bins_{ticker}", 
+                help="10 = показать все зоны, 100 = только максимальный объём (POC)"
+            )
             tdata["cluster_threshold"] = overlap_pct
             
         with c2:
@@ -110,15 +128,13 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
                     t2 = pd.to_datetime(cr_pts[1][0])
                     st.caption(f"Кластеры (диапазон): {min(t1, t2).strftime('%d.%m.%Y')} – {max(t1, t2).strftime('%d.%m.%Y')}")
                 else:
-                    st.caption("Для диапазона кластеров нужны 2 точки на D1")
+                    st.caption("Для диапазона кластеров нужны 2 точки на D1 (инструмент 'Диапазон кластеров')")
 
         if show_clusters and cluster_start_time:
             df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
             if not df_m10.empty:
                 df_m10_filtered = df_m10.loc[cluster_start_time:]
                 clusters_data = calculate_volume_profile(df_m10_filtered, tf_name="M10", threshold_pct=overlap_pct)
-            else:
-                st.caption("Нет данных M10 для анализа")
 
         if show_custom_clusters:
             cr_pts = tdata["charts"]["D1"].get("cluster_range", [])
@@ -126,17 +142,16 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
                 t1 = pd.to_datetime(cr_pts[0][0])
                 t2 = pd.to_datetime(cr_pts[1][0])
                 t_start, t_end = min(t1, t2), max(t1, t2)
-                
-                # Запрашиваем больше данных (365 дней), чтобы точно охватить любой выбранный диапазон
-                df_m10 = fetch_moex_candles(ticker, interval=10, days_back=365)
+                # Запрашиваем больше данных, чтобы точно покрыть диапазон
+                df_m10 = fetch_moex_candles(ticker, interval=10, days_back=730)
                 if not df_m10.empty:
                     df_custom = df_m10.loc[t_start:t_end]
                     if not df_custom.empty:
                         custom_clusters_data = calculate_volume_profile(df_custom, tf_name="M10", threshold_pct=overlap_pct)
                         if not custom_clusters_data:
-                            st.caption("В выбранном диапазоне нет аномальных объемов M10 для построения кластеров.")
+                            st.caption("В выбранном диапазоне нет аномальных объёмов M10.")
                     else:
-                        st.caption("Нет данных M10 в выбранном диапазоне дат.")
+                        st.caption("Нет M10 данных в выбранном диапазоне дат.")
 
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -315,7 +330,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                         y_mid = float(view_period.loc[t_mid, 'Low'])
                     new_pts = [[str(t_start), y_start], [str(t_mid), y_mid], [str(t_end), y_end]]
             elif tool == "cluster_range":
-                # Строгое правило: Первая точка = LOW, Вторая точка = HIGH
+                # Первая точка = LOW, вторая = HIGH
                 if len(new_pts) == 0:
                     new_pts.append([str(bar.name), float(bar['Low'])])
                 elif len(new_pts) == 1:
@@ -382,7 +397,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
-    # Отрисовка кластеров
+    # Отрисовка кластеров: оранжевые (канал) и голубые (диапазон)
     if clusters_data:
         charts.draw_clusters(fig, clusters_data, x_left, x_right, color="orange")
     if custom_clusters_data:
@@ -392,8 +407,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
         if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
         if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
-        
-        # Линия инструмента "Диапазон кластеров"
+
+        # Линия «Диапазон кластеров» (LOW → HIGH)
         if d1_cr_s and len(d1_cr_s) == 2:
             charts.draw_zigzag(fig, d1_cr_s, "#2196F3", "Диапазон кластеров")
 
