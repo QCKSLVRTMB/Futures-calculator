@@ -53,12 +53,8 @@ def vlookup(df: pd.DataFrame, key, col_idx: int):
     except Exception: return "-"
 
 SEC_COLS = ["SECID", "SHORTNAME", "ASSETCODE", "LOTSIZE", "MINSTEP", "STEPPRICE", "LASTTRADEDATE", "INITIALMARGIN", "PREVPRICE", "PREVSETTLEPRICE", "BUYSELLFEE", "DECIMALS", "HIGHLIMIT", "LOWLIMIT"]
-
-# ДОБАВЛЕНО: LOTVOLUME в MKT_COLS
-MKT_COLS = ["SECID", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW", "UPDATETIME", "LASTCHANGEPRCNT", "NUMTRADES", "LOTVOLUME"]
-
-# ДОБАВЛЕНО: LOTVOLUME в NUMERIC
-NUMERIC = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW", "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE", "PREVSETTLEPRICE", "LOTSIZE", "DECIMALS", "HIGHLIMIT", "LOWLIMIT", "LASTCHANGEPRCNT", "NUMTRADES", "LOTVOLUME"]
+MKT_COLS = ["SECID", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW", "UPDATETIME", "LASTCHANGEPRCNT", "NUMTRADES"]
+NUMERIC = ["BUYSELLFEE", "LAST", "VALTODAY", "OPENPOSITION", "HIGH", "LOW", "INITIALMARGIN", "STEPPRICE", "MINSTEP", "PREVPRICE", "PREVSETTLEPRICE", "LOTSIZE", "DECIMALS", "HIGHLIMIT", "LOWLIMIT", "LASTCHANGEPRCNT", "NUMTRADES"]
 
 def _subset(raw: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     out = pd.DataFrame(index=raw.index)
@@ -101,12 +97,26 @@ def fetch_moex_ims() -> pd.DataFrame:
             df = pd.read_csv(StringIO(r.text), sep="|")
             df.columns = [c.split("(")[0].strip() for c in df.columns]
         except Exception: return pd.DataFrame()
+
     if df.empty: return df
     df.columns = [str(c).upper() for c in df.columns]
+
     for c in df.columns:
         if c.startswith("IM_") and c != "IM_TIME":
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    if "IM_TIME" in df.columns: df["IM_TIME"] = pd.to_datetime(df["IM_TIME"], errors="coerce")
+    if "IM_TIME" in df.columns:
+        df["IM_TIME"] = pd.to_datetime(df["IM_TIME"], errors="coerce")
+
+    # Оставляем только основной режим торгов фьючерсов, чтобы не было дублей по SECID
+    if "BOARDID" in df.columns:
+        filtered = df[df["BOARDID"] == "RFUD"]
+        if not filtered.empty:
+            df = filtered
+
+    # На всякий случай, если на одном SECID осталось несколько строк
+    if "SECID" in df.columns:
+        df = df.drop_duplicates(subset=["SECID"], keep="first")
+
     return df
 
 @st.cache_data(ttl=180, show_spinner=False, max_entries=64)
@@ -120,14 +130,14 @@ def fetch_moex_candles(ticker: str, interval: int, days_back: int = 60) -> pd.Da
             r.raise_for_status()
             block = r.json().get("candles") or {}
         except Exception: break
-        
+
         data = block.get("data") or []
         if not data: break
         chunks.append(pd.DataFrame(data, columns=block["columns"]))
-        
+
         if len(data) < 500: break
         start += 500
-        time.sleep(0.1)  # Пауза 100 мс между страницами, чтобы не словить ConnectionResetError
+        time.sleep(0.1)
 
     if not chunks: return pd.DataFrame()
     df = pd.concat(chunks, ignore_index=True).drop_duplicates(subset=["begin"])
