@@ -34,9 +34,9 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
     c1, c2 = st.columns([3, 2])
     with c1:
         st.multiselect(
-            "Выбрать из списка MOEX ISS", 
-            options=available_tickers, 
-            key="picker_ms", 
+            "Выбрать из списка MOEX ISS",
+            options=available_tickers,
+            key="picker_ms",
             on_change=update_active_tickers,
             help="Нажмите на крестик рядом с тикером, чтобы удалить его"
         )
@@ -48,12 +48,20 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
+    # === ОДИН ПРОХОД: собираем данные по всем тикерам ===
+    instruments = {}
+    missing_in_iss = []
+    for t in picked:
+        inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, ims_df=ims_df, margin_type=margin_type)
+        instruments[t] = inst
+        if not iss_df.empty and "SECID" in iss_df.columns and t not in iss_df["SECID"].values:
+            missing_in_iss.append(t)
+
     # === 1. НАСТРОЙКА ТРЕНДОВ ===
     with st.expander("Настройка параметров рынка (Тренд, Волна, Тенденция)", expanded=False):
         rows = []
         for t in picked:
-            inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, ims_df=ims_df, margin_type=margin_type)
-            
+            inst = instruments[t]
             margin_go = min(inst.margin_long, inst.margin_short) if inst.margin_long > 0 and inst.margin_short > 0 else max(inst.margin_long, inst.margin_short)
             max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
             risk_pct = round(margin_go / deposit * 100, 2) if margin_go > 0 and deposit > 0 else 0.0
@@ -69,9 +77,8 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
                 "Волна": m["wave"],
                 "Тенденция": m["tendency"],
             })
-            
+
         df = pd.DataFrame(rows)
-        
         edited_df = st.data_editor(
             df, use_container_width=True, hide_index=True,
             column_config={
@@ -99,13 +106,11 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
 
     rows = []
     for t in picked:
-        inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, ims_df=ims_df, margin_type=margin_type)
-        
+        inst = instruments[t]
         margin_long = inst.margin_long
         margin_short = inst.margin_short
         margin_go = min(margin_long, margin_short) if margin_long > 0 and margin_short > 0 else max(margin_long, margin_short)
         max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
-
         dec = inst.decimals
 
         def fmt_val(val, d): return f"{val:,.{d}f}".replace(",", " ").replace(".", ",") if pd.notna(val) else "-"
@@ -148,7 +153,9 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         height=400
     )
 
-    # Подпись с моментом расчёта ГО и текущим типом
+    if missing_in_iss:
+        st.warning(f"⚠ Тикеры не найдены в ISS: **{', '.join(missing_in_iss)}**. Возможно, контракт ещё не торгуется или тикер указан с ошибкой.")
+
     if ims_df is not None and not ims_df.empty and "IM_TIME" in ims_df.columns:
         ims_time = ims_df["IM_TIME"].max()
         if pd.notna(ims_time):
