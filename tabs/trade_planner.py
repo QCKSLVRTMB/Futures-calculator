@@ -167,13 +167,8 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
         ]
         kv_data(items, mobile=mobile)
 
-        st.caption(
-            f"Стоимость позиции: {money(plan['notional'])} · "
-            f"Плечо: {num(plan['leverage'], 1)}x"
-        )
-        
-        for w in plan["warnings"]:
-            st.warning(w)
+        st.caption(f"Стоимость позиции: {money(plan['notional'])} · Плечо: {num(plan['leverage'], 1)}x")
+        for w in plan["warnings"]: st.warning(w)
             
     state.autosave()
 
@@ -203,10 +198,8 @@ def snap_points(pts, df):
                 start = max(0, idx - 1000)
                 end = min(len(df) - 1, idx + 1000)
                 sub_df = df.iloc[start:end+1]
-                if is_high:
-                    exact_idx = (sub_df['High'] - p_val).abs().idxmin()
-                else:
-                    exact_idx = (sub_df['Low'] - p_val).abs().idxmin()
+                if is_high: exact_idx = (sub_df['High'] - p_val).abs().idxmin()
+                else: exact_idx = (sub_df['Low'] - p_val).abs().idxmin()
                 snapped.append([str(exact_idx), p_val])
             else:
                 snapped.append([p_str, p_val])
@@ -251,10 +244,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     h1_zig = tdata["charts"]["H1"]["zigzag"]
 
     zoom_start = None
-    if tf_name == "H1" and len(d1_pts) == 3:
-        zoom_start = d1_pts[2][0]
-    elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4:
-        zoom_start = h1_zig[-4][0]
+    if tf_name == "H1" and len(d1_pts) == 3: zoom_start = d1_pts[2][0]
+    elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4: zoom_start = h1_zig[-4][0]
 
     default_bars = 1500 if tf_name == "M1" else 150
 
@@ -262,10 +253,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         try:
             z_time = pd.to_datetime(zoom_start)
             filtered_df = df.loc[z_time:]
-            if len(filtered_df) < 10:
-                view = df.tail(default_bars).copy()
-            else:
-                view = filtered_df.copy()
+            view = df.tail(default_bars).copy() if len(filtered_df) < 10 else filtered_df.copy()
         except Exception:
             view = df.tail(default_bars).copy()
     else:
@@ -279,34 +267,26 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         x, y = click
         y = inst.round_price(y)
         bar = view.iloc[view.index.get_indexer([pd.to_datetime(x)], method='nearest')[0]]
-
         new_pts = pts.copy()
         max_pts = 3 if tool == "channel" else (None if "zigzag" in tool else 2)
 
         if max_pts is None or len(new_pts) < max_pts:
             if tool == "channel":
-                if len(new_pts) == 0:
-                    new_pts.append([str(bar.name), y])
+                if len(new_pts) == 0: new_pts.append([str(bar.name), y])
                 elif len(new_pts) == 1:
                     first_time = pd.to_datetime(new_pts[0][0])
                     second_time = pd.to_datetime(bar.name)
-                    if first_time <= second_time:
-                        t_start, p_start = first_time, new_pts[0][1]
-                        t_end, p_end = second_time, y
-                    else:
-                        t_start, p_start = second_time, y
-                        t_end, p_end = first_time, new_pts[0][1]
+                    if first_time <= second_time: t_start, p_start, t_end, p_end = first_time, new_pts[0][1], second_time, y
+                    else: t_start, p_start, t_end, p_end = second_time, y, first_time, new_pts[0][1]
                     is_up = p_end > p_start
                     view_period = view.loc[t_start:t_end]
                     if view_period.empty: return
                     if is_up:
-                        y_start = float(view.loc[t_start, 'Low'])
-                        y_end = float(view.loc[t_end, 'Low'])
+                        y_start, y_end = float(view.loc[t_start, 'Low']), float(view.loc[t_end, 'Low'])
                         t_mid = view_period['High'].idxmax()
                         y_mid = float(view_period.loc[t_mid, 'High'])
                     else:
-                        y_start = float(view.loc[t_start, 'High'])
-                        y_end = float(view.loc[t_end, 'High'])
+                        y_start, y_end = float(view.loc[t_start, 'High']), float(view.loc[t_end, 'High'])
                         t_mid = view_period['Low'].idxmin()
                         y_mid = float(view_period.loc[t_mid, 'Low'])
                     new_pts = [[str(t_start), y_start], [str(t_mid), y_mid], [str(t_end), y_end]]
@@ -344,38 +324,27 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     if tf_name == "D1":
         d1_pts_s = snap_points(d1_pts, view)
         d1_fib_s = snap_points(tdata["charts"]["D1"]["fib"], view)
-        h1_zig_s = h1_zig
-        h1_fib_s = tdata["charts"]["H1"]["fib"]
-        m10_zig_s = tdata["charts"]["M10"]["zigzag"]
-        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+        h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
+        m10_zig_s, m1_zig_s = tdata["charts"]["M10"]["zigzag"], tdata["charts"]["M1"]["zigzag"]
     elif tf_name == "H1":
-        d1_pts_s = d1_pts
-        d1_fib_s = tdata["charts"]["D1"]["fib"]
+        d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
         h1_zig_s = snap_points(h1_zig, view)
         h1_fib_s = snap_points(tdata["charts"]["H1"]["fib"], view)
-        m10_zig_s = tdata["charts"]["M10"]["zigzag"]
-        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+        m10_zig_s, m1_zig_s = tdata["charts"]["M10"]["zigzag"], tdata["charts"]["M1"]["zigzag"]
     elif tf_name == "M10":
-        d1_pts_s = d1_pts
-        d1_fib_s = tdata["charts"]["D1"]["fib"]
-        h1_zig_s = h1_zig
-        h1_fib_s = tdata["charts"]["H1"]["fib"]
+        d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
+        h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
         m10_zig_s = snap_points(tdata["charts"]["M10"]["zigzag"], view)
-        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+        m1_zig_s = tdata["charts"]["M1"]["zigzag"]
     else:
-        d1_pts_s = d1_pts
-        d1_fib_s = tdata["charts"]["D1"]["fib"]
-        h1_zig_s = h1_zig
-        h1_fib_s = tdata["charts"]["H1"]["fib"]
+        d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
+        h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
         m10_zig_s = tdata["charts"]["M10"]["zigzag"]
-        m1_zig_s  = snap_points(tdata["charts"]["M1"]["zigzag"], view)
+        m1_zig_s = snap_points(tdata["charts"]["M1"]["zigzag"], view)
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile, show_info=show_info)
 
-    if tf_name == "D1": time_buffer = pd.Timedelta(days=10)
-    elif tf_name == "H1": time_buffer = pd.Timedelta(hours=12)
-    else: time_buffer = pd.Timedelta(hours=2)
-
+    time_buffer = pd.Timedelta(days=10) if tf_name == "D1" else (pd.Timedelta(hours=12) if tf_name == "H1" else pd.Timedelta(hours=2))
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
@@ -388,7 +357,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
 
     if h1_zig_s: charts.draw_zigzag(fig, h1_zig_s, "#26a69a", "Тенденция (H1)")
     if m10_zig_s and tf_name in ["H1", "M10", "M1"]: charts.draw_zigzag(fig, m10_zig_s, "#ef5350", "Зигзаг (M10)")
-    if m1_zig_s  and tf_name == "M1": charts.draw_zigzag(fig, m1_zig_s, "#ef5350", "Зигзаг (M1)")
+    if m1_zig_s and tf_name == "M1": charts.draw_zigzag(fig, m1_zig_s, "#ef5350", "Зигзаг (M1)")
 
     if h1_zig_s and tf_name == "H1":
         breakouts = analyze_manual_zigzag(h1_zig_s, view)
@@ -419,5 +388,4 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         charts.draw_trade_visuals(fig, plan, x_left, x_right, inst.decimals)
 
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
-
     st.caption(f"Диапазон отображения: {view.index[0].strftime('%d.%m.%Y %H:%M')} – {view.index[-1].strftime('%d.%m.%Y %H:%M')} · Баров: {len(view)}")
