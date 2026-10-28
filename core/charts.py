@@ -89,8 +89,10 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
         _rect(t_c, t_d, low + 2*diff/3, high, ct)
     ])
 
-def draw_clusters(fig, clusters, x_left, x_right):
-    _add_shapes(fig, [_rect(x_left, x_right, cl["low"], cl["high"], f"rgba(251, 140, 0, {cl['opacity']:.2f})") for cl in clusters])
+def draw_clusters(fig, clusters, x_left, x_right, color="orange"):
+    """Рисует зоны кластеров. Поддерживает оранжевый (по умолчанию) и голубой цвет."""
+    base_rgba = "rgba(33, 150, 243, " if color == "blue" else "rgba(251, 140, 0, "
+    _add_shapes(fig, [_rect(x_left, x_right, cl["low"], cl["high"], f"{base_rgba}{cl['opacity']:.2f})") for cl in clusters])
 
 def draw_breakouts(fig, breakouts, decimals):
     shapes, annots, drawn = [], [], set()
@@ -115,8 +117,6 @@ def draw_breakouts(fig, breakouts, decimals):
 
         if brk.get("has_pullback") and brk.get("e_time") is not None:
             v = brk["pullback_verdict"]
-            
-            # Слабый откат (хороший) = Зеленый. Сильный откат (плохой) = Красный.
             pbg = "rgba(25,135,84,0.9)" if v == "Слабый" else ("rgba(220,53,69,0.9)" if v == "Сильный" else "rgba(253,126,20,0.9)")
             
             ek = (brk["e_time"], brk["e_price"])
@@ -180,7 +180,6 @@ def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
     fig.update_yaxes(side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot", row=1, col=1)
     fig.update_yaxes(side="right", showgrid=True, gridcolor="lightgray", row=2, col=1)
     
-    # Высота графика увеличена в 2 раза
     fig.update_layout(title=title, height=900 if mobile else 1400, margin=dict(l=10, r=10, t=50, b=50), plot_bgcolor="white", paper_bgcolor="white", showlegend=False, hovermode="closest", hoverlabel=hoverlabel, dragmode="pan")
     return fig
 
