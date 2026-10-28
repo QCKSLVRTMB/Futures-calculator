@@ -214,15 +214,12 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     with c1:
         tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS[x]) or available_tools[0]
     with c2:
-        if mobile:
-            show_rr = st.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_position = st.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
-            show_info = st.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
-        else:
-            cc1, cc2, cc3 = st.columns(3)
-            show_rr = cc1.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_position = cc2.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
-            show_info = cc3.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
+        # 2 колонки, по 2 элемента в каждой
+        cc1, cc2 = st.columns(2)
+        show_tools = cc1.toggle("Разметка", value=True, key=f"tools_{ticker}_{tf_name}")
+        show_position = cc1.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
+        show_rr = cc2.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
+        show_info = cc2.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
 
     chart_data = tdata["charts"][tf_name]
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
@@ -351,13 +348,14 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     if clusters_data and cluster_start_time:
         charts.draw_clusters(fig, clusters_data, x_left, x_right)
 
-    if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
-    if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
-    if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
+    if show_tools:
+        if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
+        if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
+        if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
 
-    if h1_zig_s: charts.draw_zigzag(fig, h1_zig_s, "#26a69a", "Тенденция (H1)")
-    if m10_zig_s and tf_name in ["H1", "M10", "M1"]: charts.draw_zigzag(fig, m10_zig_s, "#ef5350", "Зигзаг (M10)")
-    if m1_zig_s and tf_name == "M1": charts.draw_zigzag(fig, m1_zig_s, "#ef5350", "Зигзаг (M1)")
+        if h1_zig_s: charts.draw_zigzag(fig, h1_zig_s, "#26a69a", "Тенденция (H1)")
+        if m10_zig_s and tf_name in ["H1", "M10", "M1"]: charts.draw_zigzag(fig, m10_zig_s, "#ef5350", "Зигзаг (M10)")
+        if m1_zig_s and tf_name == "M1": charts.draw_zigzag(fig, m1_zig_s, "#ef5350", "Зигзаг (M1)")
 
     if h1_zig_s and tf_name == "H1":
         breakouts = analyze_manual_zigzag(h1_zig_s, view)
