@@ -50,23 +50,51 @@ def render_screener(*, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=
     with col3:
         min_price = st.number_input("Мин. Цена", min_value=0.0, value=0.0, step=100.0, help="Минимальная стоимость контракта")
 
-    col4, col5 = st.columns(2)
+    col4, col5 = st.columns([1, 1])
     with col4:
         only_near = st.checkbox("Только ближайшие", value=True, help="Оставить только ближайшие к экспирации контракты для каждого актива")
+    
     with col5:
         # Определяем максимальное ГО для ползунка
         max_go_val = int(df["ГО Лонг"].max()) if not df.empty and df["ГО Лонг"].max() > 0 else 100000
-        # Шаг делаем адаптивным (примерно 100 делений)
         step_val = max(100, max_go_val // 100)
         
-        go_limit = st.slider(
-            "Макс. ГО (руб.)", 
-            min_value=0, 
-            max_value=max_go_val, 
-            value=max_go_val, 
-            step=step_val, 
-            help="Отсечь фьючерсы с гарантийным обеспечением выше выбранного лимита"
-        )
+        # Инициализация и защита от выхода за пределы при смене фильтров
+        if "go_limit_filter" not in st.session_state or st.session_state.go_limit_filter > max_go_val:
+            st.session_state.go_limit_filter = max_go_val
+
+        # Коллбэки для синхронизации
+        def _update_slider():
+            st.session_state.go_limit_filter = st.session_state.go_num
+            
+        def _update_num():
+            st.session_state.go_limit_filter = st.session_state.go_slider
+
+        # Две колонки: слайдер шире, поле ввода уже
+        c_go1, c_go2 = st.columns([3, 1])
+        with c_go1:
+            st.slider(
+                "Макс. ГО (руб.)", 
+                min_value=0, 
+                max_value=max_go_val, 
+                step=step_val, 
+                key="go_slider", 
+                on_change=_update_num,
+                value=st.session_state.go_limit_filter
+            )
+        with c_go2:
+            # Добавляем отступ сверху, чтобы выровнять с ползунком
+            st.write("") 
+            st.number_input(
+                "ГО, ₽", 
+                min_value=0, 
+                max_value=max_go_val, 
+                step=step_val, 
+                key="go_num", 
+                on_change=_update_slider,
+                value=st.session_state.go_limit_filter,
+                label_visibility="collapsed"
+            )
 
     # Применяем фильтры
     if only_fitting:
@@ -77,6 +105,7 @@ def render_screener(*, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=
         df = df[df["Цена"] >= min_price]
     
     # Фильтр по максимальному ГО
+    go_limit = st.session_state.go_limit_filter
     if go_limit < max_go_val:
         df = df[(df["ГО Лонг"] <= go_limit) & (df["ГО Шорт"] <= go_limit)]
     
