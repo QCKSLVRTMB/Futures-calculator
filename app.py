@@ -90,7 +90,11 @@ tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" 
 tab_market, tab_screen, tab_plan = st.tabs(["Данные", "Скринер", tab_plan_name])
 
 with tab_market:
-    render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
+    # ИЗМЕНЕНИЕ: добавлен параметр ims_df=ims_df
+    render_main_tab(
+        api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df,
+        deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile
+    )
 
 with tab_screen:
     render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], commission=G["commission"], mobile=mobile)
