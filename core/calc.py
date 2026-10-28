@@ -32,17 +32,6 @@ class Instrument:
         return round(round(p / self.min_step) * self.min_step, self.decimals)
 
 
-def _clean_str(val, default="-"):
-    """Безопасно приводит значение к строке, корректно обрабатывая NaN и None."""
-    if val is None: return default
-    try:
-        if pd.isna(val): return default
-    except (TypeError, ValueError):
-        pass
-    s = str(val).strip()
-    return s if s else default
-
-
 def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=None, margin_type="КСУР") -> Instrument:
     inst = Instrument(ticker=ticker)
     row = pd.Series(dtype=object)
@@ -51,9 +40,14 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
         if not sel.empty: row = sel.iloc[0]
 
     if not row.empty:
-        inst.name = _clean_str(row.get("SHORTNAME"))
-        inst.asset_code = _clean_str(row.get("ASSETCODE"))
-        inst.expiry = _clean_str(row.get("LASTTRADEDATE"))
+        name_val = row.get("SHORTNAME")
+        inst.name = str(name_val).strip() if pd.notna(name_val) and str(name_val).strip() else "-"
+
+        code_val = row.get("ASSETCODE")
+        inst.asset_code = str(code_val).strip() if pd.notna(code_val) and str(code_val).strip() else "-"
+
+        expiry_val = row.get("LASTTRADEDATE")
+        inst.expiry = str(expiry_val) if pd.notna(expiry_val) else "-"
 
         price_val = to_float(row.get("LAST")) or to_float(row.get("PREVSETTLEPRICE"))
         inst.price = price_val
@@ -74,33 +68,20 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
                 inst.margin_long = to_float(sel.iloc[0].get(col_b)) or inst.margin_long
                 inst.margin_short = to_float(sel.iloc[0].get(col_s)) or inst.margin_short
 
-    if go_df is not None and not go_df.empty and inst.margin_long == 0:
-        cl, cs = MARGIN_COL_MAP.get(margin_type, (4, 5))
-        inst.margin_long = to_float(vlookup(go_df, ticker, cl))
-        inst.margin_short = to_float(vlookup(go_df, ticker, cs))
+    # Fallback только если реально пусто — и только если данные есть
+    if not row.empty:
+        if inst.margin_long == 0 and go_df is not None and not go_df.empty:
+            cl, cs = MARGIN_COL_MAP.get(margin_type, (4, 5))
+            inst.margin_long = to_float(vlookup(go_df, ticker, cl))
+            inst.margin_short = to_float(vlookup(go_df, ticker, cs))
 
-    if api_df is not None and not api_df.empty:
-        if inst.min_step in (0, 1.0):
+        if inst.min_step in (0, 1.0) and api_df is not None and not api_df.empty:
             inst.min_step = to_float(vlookup(api_df, ticker, 6), inst.min_step) or inst.min_step
             inst.step_price = to_float(vlookup(api_df, ticker, 17), inst.step_price) or inst.step_price
 
-        # Fallback для имени (если в ISS пусто)
-        if inst.name == "-": 
-            name_gs = vlookup(api_df, ticker, 3)
-            if name_gs != "-": inst.name = str(name_gs)
+        if inst.price == 0 and md_df is not None and not md_df.empty:
+            inst.price = to_float(vlookup(md_df, ticker, 9))
 
-        # ИСПРАВЛЕНО: Fallback для кода актива
-        if inst.asset_code == "-": 
-            code_gs = vlookup(api_df, ticker, 9)
-            if code_gs != "-": inst.asset_code = str(code_gs)
-
-        # Fallback для даты экспирации
-        if inst.expiry == "-": 
-            expiry_gs = vlookup(api_df, ticker, 7)
-            if expiry_gs != "-": inst.expiry = str(expiry_gs)
-
-    if md_df is not None and not md_df.empty and inst.price == 0:
-        inst.price = to_float(vlookup(md_df, ticker, 9))
     return inst
 
 
@@ -123,12 +104,12 @@ def calc_avg_entry(entries: list[dict], default_price: float) -> tuple[float, in
 def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: float | None, tp: float | None, deposit: float, risk_pct: float, rr_ratio: float, tariff: str, max_margin_util: float = 50.0) -> dict:
     pv = inst.point_value
     entry, user_qty = calc_avg_entry(entries, inst.price)
-    
+
     warnings = []
     if sl is None or sl <= 0:
         warnings.append("Не задан стоп-лосс — сайзинг невозможен.")
         sl = 0.0
-        
+
     sign = 1 if direction == "LONG" else -1
 
     if sl > 0 and entry > 0:
@@ -145,7 +126,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
 
     risk_pts = abs(entry - sl) if sl > 0 else 0.0
     rew_pts = abs(tp - entry) if tp is not None and tp > 0 else 0.0
-    
+
     fee_entry = commission_per_side(inst, entry, tariff)
     fee_sl = commission_per_side(inst, sl, tariff) if sl > 0 else 0.0
     fee_tp = commission_per_side(inst, tp, tariff) if tp is not None and tp > 0 else 0.0
@@ -155,11 +136,11 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
 
     risk_budget = deposit * (risk_pct / 100.0)
     margin = inst.margin(direction)
-    
+
     qty_by_risk = int(risk_budget // risk_per_ct) if risk_per_ct > 0 else 0
     qty_by_margin = int((deposit * max_margin_util / 100.0) // margin) if margin > 0 else 0
     qty_rec = max(0, min(qty_by_risk, qty_by_margin) if qty_by_margin else qty_by_risk)
-    
+
     qty = user_qty if user_qty > 0 else qty_rec
 
     total_risk = risk_per_ct * qty
@@ -168,7 +149,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
 
     if qty > 0 and actual_rr < rr_ratio:
         warnings.append(f"R:R в сделке ({actual_rr:.2f}) ниже заданного ({rr_ratio}).")
-    
+
     if total_risk > risk_budget:
         warnings.append(f"Риск в сделке ({total_risk:,.2f} ₽) превышает допустимый лимит ({risk_budget:,.2f} ₽).")
 
@@ -182,7 +163,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
         "risk_budget": risk_budget, "risk_rub": total_risk, "risk_pct_fact": (total_risk / deposit * 100) if deposit else 0.0,
         "reward_rub": total_reward, "rr": actual_rr,
         "margin_total": margin * qty, "margin_pct": (margin * qty / deposit * 100) if deposit else 0.0,
-        "breakeven": inst.round_price(entry + sign * (fee_entry + fee_sl) / pv) if pv and entry > 0 else entry, 
+        "breakeven": inst.round_price(entry + sign * (fee_entry + fee_sl) / pv) if pv and entry > 0 else entry,
         "notional": entry * pv * qty,
         "leverage": (entry * pv) / margin if margin > 0 else 0.0,
         "warnings": warnings,
@@ -210,7 +191,7 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
 def analyze_manual_zigzag(pts, df):
     if len(pts) < 4: return []
     pts = sorted(pts, key=lambda p: pd.to_datetime(p[0]))
-    
+
     breakouts = []
     for i in range(3, len(pts)):
         p_a, p_b, p_c, p_d = pts[i-3], pts[i-2], pts[i-1], pts[i]
@@ -224,15 +205,15 @@ def analyze_manual_zigzag(pts, df):
             curr_height = d_price - c_price
             prev_height = b_price - a_price
             height_ratio = curr_height / prev_height if prev_height > 0 else 0
-            
+
             prev_leg = df.loc[a_time:b_time]
             curr_leg = df.loc[c_time:d_time]
             bars_ratio = len(curr_leg) / len(prev_leg) if len(prev_leg) > 0 else 0
             vol_ratio = curr_leg['Volume'].sum() / prev_leg['Volume'].sum() if prev_leg['Volume'].sum() > 0 else 0
-            
+
             setup_delta = b_price - c_price
             breakout_pct = (curr_height / setup_delta * 100) if setup_delta > 0 else 0
-            
+
             has_pullback = False
             e_time = e_price = None
             e_delta = None
@@ -241,7 +222,7 @@ def analyze_manual_zigzag(pts, df):
             e_vs_05 = "-"
             retr_bars = 0
             retr_vol = 0
-            
+
             if i + 1 < len(pts):
                 e_time, e_price = pd.to_datetime(pts[i+1][0]), pts[i+1][1]
                 if e_price < d_price:
@@ -249,14 +230,14 @@ def analyze_manual_zigzag(pts, df):
                     e_delta = d_price - e_price
                     fib_05 = d_price - (d_price - c_price) * 0.5
                     retracement_pct = (d_price - e_price) / curr_height * 100 if curr_height > 0 else 0
-                    
-                    if e_price > fib_05: 
+
+                    if e_price > fib_05:
                         pullback_verdict = "Сильный"; e_vs_05 = "выше 0.5"
-                    elif e_price < fib_05: 
+                    elif e_price < fib_05:
                         pullback_verdict = "Слабый"; e_vs_05 = "ниже 0.5"
-                    else: 
+                    else:
                         pullback_verdict = "Нормальный"; e_vs_05 = "на уровне 0.5"
-                        
+
                     df_pullback = df.loc[d_time:e_time]
                     retr_bars = len(df_pullback)
                     retr_vol = df_pullback['Volume'].sum()
@@ -277,15 +258,15 @@ def analyze_manual_zigzag(pts, df):
             curr_height = c_price - d_price
             prev_height = a_price - b_price
             height_ratio = curr_height / prev_height if prev_height > 0 else 0
-            
+
             prev_leg = df.loc[a_time:b_time]
             curr_leg = df.loc[c_time:d_time]
             bars_ratio = len(curr_leg) / len(prev_leg) if len(prev_leg) > 0 else 0
             vol_ratio = curr_leg['Volume'].sum() / prev_leg['Volume'].sum() if prev_leg['Volume'].sum() > 0 else 0
-            
+
             setup_delta = c_price - b_price
             breakout_pct = (curr_height / setup_delta * 100) if setup_delta > 0 else 0
-            
+
             has_pullback = False
             e_time = e_price = None
             e_delta = None
@@ -294,7 +275,7 @@ def analyze_manual_zigzag(pts, df):
             e_vs_05 = "-"
             retr_bars = 0
             retr_vol = 0
-            
+
             if i + 1 < len(pts):
                 e_time, e_price = pd.to_datetime(pts[i+1][0]), pts[i+1][1]
                 if e_price > d_price:
@@ -302,14 +283,14 @@ def analyze_manual_zigzag(pts, df):
                     e_delta = e_price - d_price
                     fib_05 = d_price + (c_price - d_price) * 0.5
                     retracement_pct = (e_price - d_price) / curr_height * 100 if curr_height > 0 else 0
-                    
-                    if e_price < fib_05: 
+
+                    if e_price < fib_05:
                         pullback_verdict = "Сильный"; e_vs_05 = "ниже 0.5"
-                    elif e_price > fib_05: 
+                    elif e_price > fib_05:
                         pullback_verdict = "Слабый"; e_vs_05 = "выше 0.5"
-                    else: 
+                    else:
                         pullback_verdict = "Нормальный"; e_vs_05 = "на уровне 0.5"
-                        
+
                     df_pullback = df.loc[d_time:e_time]
                     retr_bars = len(df_pullback)
                     retr_vol = df_pullback['Volume'].sum()
@@ -334,7 +315,7 @@ def analyze_manual_zigzag(pts, df):
             brk["breakout_verdict"] = "weak"
         else:
             brk["breakout_verdict"] = "normal"
-            
+
     return breakouts
 
 
