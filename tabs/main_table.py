@@ -22,12 +22,14 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
     else:
         available_tickers = []
 
-    if "active_tickers" not in st.session_state:
-        st.session_state["active_tickers"] = []
+    # Получаем актуальный список из глобального состояния
+    active = state.active_tickers()
+
+    # Инициализируем виджеты на основе state.active_tickers()
     if "picker_ms" not in st.session_state:
-        st.session_state["picker_ms"] = [t for t in st.session_state["active_tickers"] if t in available_tickers]
+        st.session_state["picker_ms"] = [t for t in active if t in available_tickers]
     if "picker_txt" not in st.session_state:
-        manual = [t for t in st.session_state["active_tickers"] if t not in available_tickers]
+        manual = [t for t in active if t not in available_tickers]
         st.session_state["picker_txt"] = ", ".join(manual)
 
     st.markdown("#### Выбор инструментов")
@@ -43,12 +45,12 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
     with c2:
         st.text_input("Ввести тикер вручную (через запятую)", key="picker_txt", on_change=update_active_tickers)
 
-    picked = st.session_state["active_tickers"]
+    picked = state.active_tickers()
     if not picked:
         st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
-    # === 1. НАСТРОЙКА ТРЕНДОВ (Спрятана в спойлер, чтобы не мешать) ===
+    # === 1. НАСТРОЙКА ТРЕНДОВ (Спрятана в спойлер) ===
     with st.expander("Настройка параметров рынка (Тренд, Волна, Тенденция)", expanded=False):
         rows = []
         for t in picked:
@@ -94,11 +96,9 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
     
     view = iss_df[iss_df["SECID"].isin(picked)].copy()
     
-    # Сортировка по объему торгов (ликвидности)
     sort_col = "LOTVOLUME" if "LOTVOLUME" in view.columns else ("VALTODAY" if "VALTODAY" in view.columns else "SECID")
     view = view.sort_values(by=sort_col, ascending=False)
 
-    # Подготовка колонок под скриншот
     out = view[["SECID", "LAST", "LASTCHANGEPRCNT", "HIGH", "LOW", "LOTVOLUME", "NUMTRADES", "OPENPOSITION"]].copy()
     out.columns = [
         "Тикер", "Последняя сделка", "Изм. к закрытию", 
@@ -106,14 +106,12 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
         "Число сделок", "Открытых позиций"
     ]
 
-    # Функция для окрашивания процентов
     def color_change(val):
         if pd.isna(val): return ''
         if val > 0: return 'color: #16a34a; font-weight: 600;'
         elif val < 0: return 'color: #dc2626; font-weight: 600;'
         return ''
 
-    # Форматирование (заменяем точки на запятые, тысячи на пробелы)
     styled_df = out.style.map(color_change, subset=["Изм. к закрытию"]).format({
         "Последняя сделка": lambda x: f"{x:,.4f}".replace(",", " ").replace(".", ",") if pd.notna(x) else "-",
         "Изм. к закрытию": lambda x: f"{x:+.2f}%".replace(".", ",") if pd.notna(x) else "-",
