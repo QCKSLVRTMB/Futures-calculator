@@ -1,7 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-import os
 import streamlit as st
 
 from core import state, storage
@@ -34,11 +33,6 @@ def _logo_path() -> str | None:
 @st.cache_data(ttl=30, show_spinner=False)
 def _profiles() -> list[str]:
     return storage.list_profiles()
-
-@st.fragment
-def _planner_fragment(**kw):
-    render_trade_planner(**kw)
-    state.autosave()
 
 # === КОМПАКТНЫЙ ЗАГОЛОВОК ===
 col1, col2 = st.columns([5, 1])
@@ -122,18 +116,7 @@ with tab_market:
     render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
 
 with tab_screen:
-    # Передаем api_df и md_df, чтобы скринер использовал ту же логику расчета ГО, что и калькулятор
-    render_screener(
-        iss_df=iss_df, 
-        ims_df=ims_df, 
-        go_df=go_df, 
-        api_df=api_df, 
-        md_df=md_df, 
-        deposit=G["deposit"], 
-        margin_type=G["margin_type"], 
-        commission=G["commission"], 
-        mobile=mobile
-    )
+    render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], commission=G["commission"], mobile=mobile)
 
 with tab_plan:
     if not tickers:
@@ -141,7 +124,7 @@ with tab_plan:
     else:
         active = seg("Инструмент", tickers, key="plan_ticker", default=st.session_state.get("plan_ticker", tickers[0]))
         active = active if active in tickers else tickers[0]
-        _planner_fragment(ticker=active, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, deposit=G["deposit"], risk_pct=G["risk_pct"], rr_ratio=G["rr_ratio"], commission=G["commission"], strategy=G["strategy"], mobile=mobile)
+        render_trade_planner(ticker=active, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, deposit=G["deposit"], risk_pct=G["risk_pct"], rr_ratio=G["rr_ratio"], commission=G["commission"], strategy=G["strategy"], mobile=mobile)
 
 with tab_help:
     render_help_tab()
