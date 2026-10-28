@@ -82,8 +82,20 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low + 2*diff/3, y1=high, fillcolor=color_top, line=dict(width=0), layer="below", row=1, col=1)
 
 def draw_clusters(fig, clusters, x_left, x_right):
-    for cl in clusters:
-        fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"], fillcolor="rgba(255, 140, 0, 0.15)", line=dict(width=0), layer="below", row=1, col=1)
+    # Сортируем так, чтобы "сильные" (высокообъемные) зоны рисовались поверх остальных
+    sorted_clusters = sorted(clusters, key=lambda c: (c.get("is_strong", False), c.get("volume", 0)))
+    
+    for cl in sorted_clusters:
+        # Если зона "сильная" - красим в синий, иначе в оранжевый. Прозрачность 15%.
+        if cl.get("is_strong", False):
+            fill_color = "rgba(25, 118, 210, 0.15)"  # Синий
+        else:
+            fill_color = "rgba(255, 140, 0, 0.15)"   # Оранжевый
+            
+        fig.add_shape(
+            type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"], 
+            fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1
+        )
 
 def draw_breakouts(fig, breakouts, decimals):
     drawn_coords = set()
