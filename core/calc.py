@@ -216,6 +216,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
     risk_per_ct = (risk_pts * pv) + fee_entry + fee_sl
     target_profit_rub = risk_per_ct * rr_ratio
 
+    # === МИНИМАЛЬНЫЙ TP ===
     if pv > 0:
         approx_tp = inst.round_price(entry + ((target_profit_rub + fee_entry) / pv) * sign)
         fee_tp_min = commission_per_side(inst, approx_tp, tariff) if approx_tp > 0 else 0.0
@@ -340,7 +341,6 @@ def analyze_manual_zigzag(pts, df):
                 fib_05 = d_p - s * curr_height * 0.5
                 retracement_pct = (e_delta / curr_height * 100) if curr_height > 0 else 0
                 
-                # Слабый откат (не дошел до 0.5) = сильный тренд. Сильный откат (глубже 0.5) = слабый тренд.
                 if s * (e_p - fib_05) > 0:
                     pullback_verdict = "Слабый"
                     e_vs_05 = "выше 0.5" if s > 0 else "ниже 0.5"
@@ -403,7 +403,6 @@ def get_volume_colors(df, tf_name, sensitivity=3.0):
     return colors.tolist()
 
 def calculate_volume_profile(df, tf_name="M10", threshold_pct=50, sensitivity=3.0, colors=None):
-    """Профиль значимых объёмов. Строится по стандартным правилам (от Low до Close / от Close до High)."""
     if df is None or df.empty or "Volume" not in df.columns: return []
     colors = np.asarray(colors if colors is not None else get_volume_colors(df, tf_name, sensitivity), dtype=object)
     if colors.size != len(df): return []
@@ -421,7 +420,6 @@ def calculate_volume_profile(df, tf_name="M10", threshold_pct=50, sensitivity=3.
     is_buy = c > o
     low = np.where(is_buy, l, c)
     high = np.where(is_buy, c, h)
-        
     ok = (high > low) & (vol > 0)
     low, high, vol = low[ok], high[ok], vol[ok]
     if low.size == 0: return []
