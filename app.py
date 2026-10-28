@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+from pathlib import Path
 import os
 import streamlit as st
 
@@ -9,22 +10,44 @@ from core.market import fetch_moex_forts, fetch_moex_ims, load_api, load_go, loa
 from tabs.main_table import render_main_tab
 from tabs.screener import render_screener
 from tabs.trade_planner import render_trade_planner
-from tabs.help import render_help_tab  # <-- ДОБАВЛЕН ИМПОРТ
+from tabs.help import render_help_tab
 from ui.theme import inject_css, seg
 
 st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="expanded")
 inject_css()
 
-# === КОМПАКТНЫЙ ЗАГОЛОВОК С ЛОГО В ПРАВОМ УГЛУ ===
+FRIENDLY_MARGIN_NAMES = {
+    "НАЧ. ГО": "НАЧ. ГО — Базовое",
+    "КНУР": "КНУР — Начальный (новичкам)",
+    "КСУР": "КСУР — Стандартный",
+    "КПУР": "КПУР — Повышенный (квалам)",
+    "КОУР": "КОУР — Особый"
+}
+TARIFF_NAMES = list(TARIFF_CONFIGS)
+
+@st.cache_data(show_spinner=False)
+def _logo_path() -> str | None:
+    for p in ("logo.png", "logo.jpg"):
+        if Path(p).exists(): return p
+    return None
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _profiles() -> list[str]:
+    return storage.list_profiles()
+
+@st.fragment
+def _planner_fragment(**kw):
+    render_trade_planner(**kw)
+    state.autosave()
+
+# === КОМПАКТНЫЙ ЗАГОЛОВОК ===
 col1, col2 = st.columns([5, 1])
 with col1:
     st.markdown("<h1 style='color: #0F172A; margin: 0; font-size: 2rem;'>Калькулятор фьючерсов MOEX</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #475569; margin: 0; font-size: 16px;'>сообщества QCKSLVR TRADING</p>", unsafe_allow_html=True)
 with col2:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", use_column_width=False, width=200)
-    elif os.path.exists("logo.jpg"):
-        st.image("logo.jpg", use_column_width=False, width=200)
+    logo = _logo_path()
+    if logo: st.image(logo, use_column_width=False, width=200)
 
 st.write("")
 
@@ -34,19 +57,9 @@ G = S["global"]
 def _sync(key, gkey):
     state.set_global(gkey, st.session_state[key])
 
-# Дружелюбные названия для выпадающего списка категорий риска
-FRIENDLY_MARGIN_NAMES = {
-    "НАЧ. ГО": "НАЧ. ГО — Базовое",
-    "КНУР": "КНУР — Начальный (новичкам)",
-    "КСУР": "КСУР — Стандартный",
-    "КПУР": "КПУР — Повышенный (квалам)",
-    "КОУР": "КОУР — Особый"
-}
-
 with st.sidebar:
     st.header("Параметры")
-    
-    profiles = storage.list_profiles()
+    profiles = _profiles()
     current_prof = state.profile()
     idx = profiles.index(current_prof) if current_prof in profiles else 0
     st.selectbox("Профиль данных", profiles + ["+ новый"], key="sb_profile_sel", index=idx)
@@ -56,6 +69,7 @@ with st.sidebar:
         if new_name and st.button("Создать", use_container_width=True):
             st.session_state["sb_profile"] = new_name
             state.replace_state(storage.default_state())
+            _profiles.clear()
             st.rerun()
     elif st.session_state["sb_profile_sel"] != current_prof:
         st.session_state["sb_profile"] = st.session_state["sb_profile_sel"]
@@ -67,18 +81,8 @@ with st.sidebar:
     st.number_input("Допустимый риск в сделке, %", 0.1, 100.0, float(G["risk_pct"]), 0.1, key="sb_risk", on_change=_sync, args=("sb_risk", "risk_pct"))
     st.number_input("Risk/Reward (1 к ...)", 1.0, 20.0, float(G["rr_ratio"]), 0.5, key="sb_rr", on_change=_sync, args=("sb_rr", "rr_ratio"))
     st.slider("Макс. использование депо под ГО, %", 10, 100, int(G.get("max_margin_util", 50)), 5, key="sb_mmu", on_change=_sync, args=("sb_mmu", "max_margin_util"))
-    st.selectbox("Комиссия", list(TARIFF_CONFIGS), key="sb_comm", index=list(TARIFF_CONFIGS).index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
-    
-    st.selectbox(
-        "Категория риска", 
-        MARGIN_LEVELS, 
-        key="sb_margin", 
-        index=MARGIN_LEVELS.index(G["margin_type"]), 
-        format_func=lambda x: FRIENDLY_MARGIN_NAMES.get(x, x), 
-        on_change=_sync, 
-        args=("sb_margin", "margin_type")
-    )
-    
+    st.selectbox("Комиссия", TARIFF_NAMES, key="sb_comm", index=TARIFF_NAMES.index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
+    st.selectbox("Категория риска", MARGIN_LEVELS, key="sb_margin", index=MARGIN_LEVELS.index(G["margin_type"]), format_func=lambda x: FRIENDLY_MARGIN_NAMES.get(x, x), on_change=_sync, args=("sb_margin", "margin_type"))
     st.toggle("Мобильный вид", key="sb_mobile", value=bool(G["mobile_view"]), on_change=_sync, args=("sb_mobile", "mobile_view"))
 
     if st.button("Обновить котировки", use_container_width=True):
@@ -87,7 +91,13 @@ with st.sidebar:
 
     st.divider()
     st.header("Управление настройками")
-    st.download_button("Экспорт сессии", data=storage.dumps(S), file_name=datetime.now().strftime("%d.%m.%y_%H-%M") + ".futures", mime="application/json", use_container_width=True)
+    
+    if st.button("Подготовить экспорт", use_container_width=True):
+        st.session_state["_export_blob"] = storage.dumps(S)
+    blob = st.session_state.get("_export_blob")
+    if blob:
+        st.download_button("Скачать .futures", data=blob, file_name=datetime.now().strftime("%d.%m.%y_%H-%M") + ".futures", mime="application/json", use_container_width=True)
+
     up = st.file_uploader("Импорт", type=["futures", "json"], label_visibility="collapsed")
     if up and st.button("Применить импорт", type="primary", use_container_width=True):
         parsed = storage.loads(up.getvalue().decode("utf-8"))
@@ -106,14 +116,10 @@ api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 tickers = state.active_tickers()
 tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" if tickers else "Калькуляторы фьючерсов"
 
-# ДОБАВЛЕНА ВКЛАДКА "СПРАВКА"
 tab_market, tab_screen, tab_plan, tab_help = st.tabs(["Данные", "Скринер", tab_plan_name, "Справка"])
 
 with tab_market:
-    render_main_tab(
-        api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df,
-        deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile
-    )
+    render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
 
 with tab_screen:
     render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], commission=G["commission"], mobile=mobile)
@@ -124,9 +130,8 @@ with tab_plan:
     else:
         active = seg("Инструмент", tickers, key="plan_ticker", default=st.session_state.get("plan_ticker", tickers[0]))
         active = active if active in tickers else tickers[0]
-        render_trade_planner(ticker=active, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, deposit=G["deposit"], risk_pct=G["risk_pct"], rr_ratio=G["rr_ratio"], commission=G["commission"], strategy=G["strategy"], mobile=mobile)
+        _planner_fragment(ticker=active, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, deposit=G["deposit"], risk_pct=G["risk_pct"], rr_ratio=G["rr_ratio"], commission=G["commission"], strategy=G["strategy"], mobile=mobile)
 
-# ОТОБРАЖЕНИЕ ВКЛАДКИ "СПРАВКА"
 with tab_help:
     render_help_tab()
 
