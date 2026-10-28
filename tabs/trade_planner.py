@@ -115,7 +115,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     state.autosave()
 
 def snap_points(pts, df):
-    """Сдвигает точки по горизонтали на бары, которые достигли этих цен (High/Low)."""
     if not pts or df.empty: return pts
     snapped = []
     for p_str, p_val in pts:
@@ -124,24 +123,20 @@ def snap_points(pts, df):
         except Exception:
             snapped.append([p_str, p_val])
             continue
-            
-        # Ищем бары, где High или Low точно равен p_val (с допуском для float)
+        
         tol = 1e-4 * max(abs(p_val), 1.0)
         mask_high = (df['High'] - p_val).abs() <= tol
         mask_low = (df['Low'] - p_val).abs() <= tol
         matching_indices = df.index[mask_high | mask_low]
         
         if len(matching_indices) > 0:
-            # Если точное совпадение найдено, берем ближайшее по времени
             idx = matching_indices.get_indexer([t], method='nearest')[0]
             snapped.append([str(matching_indices[idx]), p_val])
         else:
-            # Если точного совпадения нет, ищем ближайший экстремум в окне
             idx = df.index.get_indexer([t], method='nearest')[0]
             if idx >= 0:
                 bar = df.iloc[idx]
                 is_high = abs(p_val - bar['High']) <= abs(p_val - bar['Low'])
-                # Окно поиска: 1000 баров (безопасно для любого перехода ТФ)
                 start = max(0, idx - 1000)
                 end = min(len(df) - 1, idx + 1000)
                 sub_df = df.iloc[start:end+1]
@@ -196,7 +191,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
 
     zoom_start = None
     if tf_name == "H1" and len(d1_pts) == 3:
-        zoom_start = d1_pts[1][0]
+        zoom_start = d1_pts[2][0]   # ИСПРАВЛЕНО: берем точку 2-го клика (индекс 2)
     elif tf_name in ["M10", "M1"] and len(h1_zig) >= 4:
         zoom_start = h1_zig[-4][0]
 
@@ -285,14 +280,35 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
                 state.autosave(force=True)
                 st.rerun(scope="fragment")
 
-    # === СНАППИНГ ТОЧЕК ПОД ТЕКУЩИЙ ТАЙМФРЕЙМ ===
-    d1_pts_s = snap_points(d1_pts, view)
-    d1_fib_s = snap_points(tdata["charts"]["D1"]["fib"], view)
-    h1_zig_s = snap_points(h1_zig, view)
-    h1_fib_s = snap_points(tdata["charts"]["H1"]["fib"], view)
-    m10_zig_s = snap_points(tdata["charts"]["M10"]["zigzag"], view)
-    m1_zig_s  = snap_points(tdata["charts"]["M1"]["zigzag"], view)
-    # ==================================================
+    # Снаппинг точек
+    if tf_name == "D1":
+        d1_pts_s = snap_points(d1_pts, view)
+        d1_fib_s = snap_points(tdata["charts"]["D1"]["fib"], view)
+        h1_zig_s = h1_zig
+        h1_fib_s = tdata["charts"]["H1"]["fib"]
+        m10_zig_s = tdata["charts"]["M10"]["zigzag"]
+        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+    elif tf_name == "H1":
+        d1_pts_s = d1_pts
+        d1_fib_s = tdata["charts"]["D1"]["fib"]
+        h1_zig_s = snap_points(h1_zig, view)
+        h1_fib_s = snap_points(tdata["charts"]["H1"]["fib"], view)
+        m10_zig_s = tdata["charts"]["M10"]["zigzag"]
+        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+    elif tf_name == "M10":
+        d1_pts_s = d1_pts
+        d1_fib_s = tdata["charts"]["D1"]["fib"]
+        h1_zig_s = h1_zig
+        h1_fib_s = tdata["charts"]["H1"]["fib"]
+        m10_zig_s = snap_points(tdata["charts"]["M10"]["zigzag"], view)
+        m1_zig_s  = tdata["charts"]["M1"]["zigzag"]
+    else:  # M1
+        d1_pts_s = d1_pts
+        d1_fib_s = tdata["charts"]["D1"]["fib"]
+        h1_zig_s = h1_zig
+        h1_fib_s = tdata["charts"]["H1"]["fib"]
+        m10_zig_s = tdata["charts"]["M10"]["zigzag"]
+        m1_zig_s  = snap_points(tdata["charts"]["M1"]["zigzag"], view)
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile, show_info=show_info)
 
@@ -345,3 +361,5 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
         charts.draw_trade_visuals(fig, plan, x_left, x_right, inst.decimals)
 
     st.plotly_chart(fig, use_container_width=True, key=chart_key, on_select="rerun", selection_mode="points", config=charts.PLOT_CONFIG)
+
+    st.caption(f"Диапазон отображения: {view.index[0].strftime('%d.%m.%Y %H:%M')} – {view.index[-1].strftime('%d.%m.%Y %H:%M')} · Баров: {len(view)}")
