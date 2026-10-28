@@ -122,7 +122,18 @@ with tab_market:
     render_main_tab(api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile)
 
 with tab_screen:
-    render_screener(iss_df=iss_df, go_df=go_df, ims_df=ims_df, deposit=G["deposit"], margin_type=G["margin_type"], commission=G["commission"], mobile=mobile)
+    # Передаем api_df и md_df, чтобы скринер использовал ту же логику расчета ГО, что и калькулятор
+    render_screener(
+        iss_df=iss_df, 
+        ims_df=ims_df, 
+        go_df=go_df, 
+        api_df=api_df, 
+        md_df=md_df, 
+        deposit=G["deposit"], 
+        margin_type=G["margin_type"], 
+        commission=G["commission"], 
+        mobile=mobile
+    )
 
 with tab_plan:
     if not tickers:
