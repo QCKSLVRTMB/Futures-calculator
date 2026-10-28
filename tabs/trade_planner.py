@@ -97,14 +97,32 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     st.markdown("#### Графики рынка")
     
     # === ГЛОБАЛЬНЫЕ НАСТРОЙКИ КЛАСТЕРОВ ===
-    show_clusters = st.toggle("Кластеры объемов (M10)", value=False, key=f"clu_{ticker}", help="Анализ объемов M10 от 2-й точки канала D1 до текущего бара. Отображается на всех таймфреймах.")
+    # Берем значение из tdata, по умолчанию False
+    show_clusters = st.toggle(
+        "Кластеры объемов (M10)", 
+        value=tdata.get("show_clusters", False), 
+        key=f"clu_{ticker}", 
+        help="Анализ объемов M10 от 2-й точки канала D1 до текущего бара. Отображается на всех таймфреймах."
+    )
+    tdata["show_clusters"] = show_clusters  # <--- СОХРАНЯЕМ В JSON
+    
     clusters_data = []
     cluster_start_time = None
     
     if show_clusters:
         c1, c2 = st.columns([1, 2])
         with c1:
-            overlap_pct = st.slider("Порог отсечения", min_value=10, max_value=100, value=50, step=5, key=f"clu_bins_{ticker}", help="10 = показать все зоны, 100 = только максимальный объём (POC)")
+            # Берем значение из tdata, по умолчанию 50
+            overlap_pct = st.slider(
+                "Порог отсечения", 
+                min_value=10, max_value=100, 
+                value=tdata.get("cluster_threshold", 50), 
+                step=5, 
+                key=f"clu_bins_{ticker}", 
+                help="10 = показать все зоны, 100 = только максимальный объём (POC)"
+            )
+            tdata["cluster_threshold"] = overlap_pct  # <--- СОХРАНЯЕМ В JSON
+            
         with c2:
             d1_pts = tdata["charts"]["D1"]["channel"]
             if len(d1_pts) == 3:
@@ -206,6 +224,9 @@ def snap_points(pts, df):
     return snapped
 
 def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data=None, cluster_start_time=None):
+    # Перенесено наверх, чтобы переключатели могли читать и сохранять свои состояния
+    chart_data = tdata["charts"][tf_name]
+
     if tf_name == "D1": available_tools = ["channel", "fib_d1"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
@@ -216,12 +237,25 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     with c2:
         # 2 колонки, по 2 элемента в каждой
         cc1, cc2 = st.columns(2)
-        show_tools = cc1.toggle("Разметка", value=True, key=f"tools_{ticker}_{tf_name}")
-        show_position = cc1.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
-        show_rr = cc2.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-        show_info = cc2.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
+        
+        # Достаем сохраненные значения или ставим True по умолчанию
+        cur_tools = chart_data.get("show_tools", True)
+        cur_pos = chart_data.get("show_position", True)
+        cur_rr = chart_data.get("show_rr", True)
+        cur_info = chart_data.get("show_info", True)
 
-    chart_data = tdata["charts"][tf_name]
+        show_tools = cc1.toggle("Разметка", value=cur_tools, key=f"tools_{ticker}_{tf_name}")
+        chart_data["show_tools"] = show_tools  # <--- СОХРАНЯЕМ В JSON
+        
+        show_position = cc1.toggle("Позиция", value=cur_pos, key=f"pos_{ticker}_{tf_name}")
+        chart_data["show_position"] = show_position  # <--- СОХРАНЯЕМ В JSON
+        
+        show_rr = cc2.toggle("Зоны RR", value=cur_rr, key=f"rr_{ticker}_{tf_name}")
+        chart_data["show_rr"] = show_rr  # <--- СОХРАНЯЕМ В JSON
+        
+        show_info = cc2.toggle("Информация", value=cur_info, key=f"info_{ticker}_{tf_name}")
+        chart_data["show_info"] = show_info  # <--- СОХРАНЯЕМ В JSON
+
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
     else: target_tool = "zigzag"
