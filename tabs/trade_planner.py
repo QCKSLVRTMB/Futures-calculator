@@ -47,7 +47,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     with c[2 % len(c)]:
         deal["tp"] = st.number_input("Тейк-профит (0 = авто)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format=fmt, key=f"tp_{ticker}") or None
 
-    # === CSS СТИЛИ ДЛЯ ЦВЕТОВ ===
     st.markdown(
         f"""
         <style>
@@ -78,7 +77,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
 
     st.markdown("#### Графики рынка")
     
-    # === ГЛОБАЛЬНЫЕ НАСТРОЙКИ КЛАСТЕРОВ ===
     c_tog1, c_tog2 = st.columns(2)
     with c_tog1:
         show_clusters = st.toggle("Кластеры объемов (M10)", value=tdata.get("show_clusters", False), key=f"clu_{ticker}", help="Анализ объемов M10 от 2-й точки канала D1.")
@@ -135,7 +133,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
                         custom_clusters_data = calculate_volume_profile(df_custom, tf_name="M10", threshold_pct=overlap_pct)
                     else:
                         st.caption("Нет данных M10 в выбранном диапазоне")
-    # =====================================
 
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -224,7 +221,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
 
-    # Локальные названия для UI
     tool_labels = {"cluster_range": "Диапазон кластеров"}
 
     c1, c2 = st.columns([1, 1])
@@ -250,7 +246,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
     else: target_tool = "zigzag"
 
-    # Инициализация списка точек, чтобы избежать KeyError
     if target_tool not in chart_data:
         chart_data[target_tool] = []
 
@@ -316,7 +311,13 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                         y_mid = float(view_period.loc[t_mid, 'Low'])
                     new_pts = [[str(t_start), y_start], [str(t_mid), y_mid], [str(t_end), y_end]]
             elif tool == "cluster_range":
-                new_pts.append([str(bar.name), y])
+                # Правило: линия строится от High к Low (или наоборот)
+                if len(new_pts) == 0:
+                    is_high = abs(y - bar['High']) < abs(y - bar['Low'])
+                    new_pts.append([str(bar.name), float(bar['High']) if is_high else float(bar['Low'])])
+                elif len(new_pts) == 1:
+                    is_first_high = new_pts[0][1] == view.loc[pd.to_datetime(new_pts[0][0]), 'High']
+                    new_pts.append([str(bar.name), float(bar['Low']) if is_first_high else float(bar['High'])])
             elif "zigzag" in tool:
                 if new_pts and pd.to_datetime(new_pts[-1][0]) == bar.name:
                     last_y = new_pts[-1][1]
@@ -379,7 +380,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
-    # Отрисовка кластеров
     if clusters_data:
         charts.draw_clusters(fig, clusters_data, x_left, x_right, color="orange")
     if custom_clusters_data:
@@ -390,7 +390,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
         if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
         
-        # Отрисовка линии самого инструмента "Диапазон кластеров" (соединяем 2 точки)
         if d1_cr_s and len(d1_cr_s) == 2:
             charts.draw_zigzag(fig, d1_cr_s, "#2196F3", "Диапазон кластеров")
 
