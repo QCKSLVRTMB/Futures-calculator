@@ -33,6 +33,15 @@ G = S["global"]
 def _sync(key, gkey):
     state.set_global(gkey, st.session_state[key])
 
+# Дружелюбные названия для выпадающего списка категорий риска
+FRIENDLY_MARGIN_NAMES = {
+    "НАЧ. ГО": "НАЧ. ГО — Базовое",
+    "КНУР": "КНУР — Начальный (новичкам)",
+    "КСУР": "КСУР — Стандартный",
+    "КПУР": "КПУР — Повышенный (квалам)",
+    "КОУР": "КОУР — Особый"
+}
+
 with st.sidebar:
     st.header("Параметры")
     
@@ -58,7 +67,18 @@ with st.sidebar:
     st.number_input("Risk/Reward (1 к ...)", 1.0, 20.0, float(G["rr_ratio"]), 0.5, key="sb_rr", on_change=_sync, args=("sb_rr", "rr_ratio"))
     st.slider("Макс. использование депо под ГО, %", 10, 100, int(G.get("max_margin_util", 50)), 5, key="sb_mmu", on_change=_sync, args=("sb_mmu", "max_margin_util"))
     st.selectbox("Комиссия", list(TARIFF_CONFIGS), key="sb_comm", index=list(TARIFF_CONFIGS).index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
-    st.selectbox("Тип ГО", MARGIN_LEVELS, key="sb_margin", index=MARGIN_LEVELS.index(G["margin_type"]), format_func=lambda x: MARGIN_HINTS.get(x, x), on_change=_sync, args=("sb_margin", "margin_type"))
+    
+    # ИЗМЕНЕНО: Категория риска с красивым отображением
+    st.selectbox(
+        "Категория риска", 
+        MARGIN_LEVELS, 
+        key="sb_margin", 
+        index=MARGIN_LEVELS.index(G["margin_type"]), 
+        format_func=lambda x: FRIENDLY_MARGIN_NAMES.get(x, x), 
+        on_change=_sync, 
+        args=("sb_margin", "margin_type")
+    )
+    
     st.toggle("Мобильный вид", key="sb_mobile", value=bool(G["mobile_view"]), on_change=_sync, args=("sb_mobile", "mobile_view"))
 
     if st.button("Обновить котировки", use_container_width=True):
@@ -73,7 +93,6 @@ with st.sidebar:
         parsed = storage.loads(up.getvalue().decode("utf-8"))
         if parsed:
             state.replace_state(parsed)
-            # ДОБАВЛЕН "picker_" и "main_" в очистку
             for k in [k for k in st.session_state if k.startswith(("m_", "tf_", "tool_", "dir_", "sl_", "tp_", "entries_", "chart_", "picker_", "main_"))]:
                 del st.session_state[k]
             st.success("Загружено"); st.rerun()
@@ -90,7 +109,6 @@ tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" 
 tab_market, tab_screen, tab_plan = st.tabs(["Данные", "Скринер", tab_plan_name])
 
 with tab_market:
-    # ИЗМЕНЕНИЕ: добавлен параметр ims_df=ims_df
     render_main_tab(
         api_df=api_df, go_df=go_df, md_df=md_df, iss_df=iss_df, ims_df=ims_df,
         deposit=G["deposit"], margin_type=G["margin_type"], mobile=mobile
