@@ -51,28 +51,10 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     st.markdown(
         f"""
         <style>
-        /* SL - красный */
-        .st-key-sl_{ticker} input {{
-            color: #ef5350 !important;
-            -webkit-text-fill-color: #ef5350 !important;
-            font-weight: bold;
-        }}
-        /* TP - зеленый */
-        .st-key-tp_{ticker} input {{
-            color: #26a69a !important;
-            -webkit-text-fill-color: #26a69a !important;
-            font-weight: bold;
-        }}
-        /* ТВХ (таблица) - синий */
-        .st-key-entries_{ticker} div[data-testid="stDataFrame"] {{
-            border: 2px solid #1976D2 !important;
-            border-radius: 0.5rem !important;
-        }}
-        .st-key-entries_{ticker} input {{
-            color: #1976D2 !important;
-            -webkit-text-fill-color: #1976D2 !important;
-            font-weight: bold;
-        }}
+        .st-key-sl_{ticker} input {{ color: #ef5350 !important; -webkit-text-fill-color: #ef5350 !important; font-weight: bold; }}
+        .st-key-tp_{ticker} input {{ color: #26a69a !important; -webkit-text-fill-color: #26a69a !important; font-weight: bold; }}
+        .st-key-entries_{ticker} div[data-testid="stDataFrame"] {{ border: 2px solid #1976D2 !important; border-radius: 0.5rem !important; }}
+        .st-key-entries_{ticker} input {{ color: #1976D2 !important; -webkit-text-fill-color: #1976D2 !important; font-weight: bold; }}
         </style>
         """,
         unsafe_allow_html=True
@@ -97,53 +79,68 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     st.markdown("#### Графики рынка")
     
     # === ГЛОБАЛЬНЫЕ НАСТРОЙКИ КЛАСТЕРОВ ===
-    # Берем значение из tdata, по умолчанию False
-    show_clusters = st.toggle(
-        "Кластеры объемов (M10)", 
-        value=tdata.get("show_clusters", False), 
-        key=f"clu_{ticker}", 
-        help="Анализ объемов M10 от 2-й точки канала D1 до текущего бара. Отображается на всех таймфреймах."
-    )
-    tdata["show_clusters"] = show_clusters  # <--- СОХРАНЯЕМ В JSON
-    
+    c_tog1, c_tog2 = st.columns(2)
+    with c_tog1:
+        show_clusters = st.toggle("Кластеры объемов (M10)", value=tdata.get("show_clusters", False), key=f"clu_{ticker}", help="Анализ объемов M10 от 2-й точки канала D1.")
+        tdata["show_clusters"] = show_clusters
+    with c_tog2:
+        show_custom_clusters = st.toggle("Диапазон кластеров (D1)", value=tdata.get("show_custom_clusters", False), key=f"clu_custom_{ticker}", help="Кластеры в заданном вами диапазоне на D1.")
+        tdata["show_custom_clusters"] = show_custom_clusters
+
     clusters_data = []
-    cluster_start_time = None
+    custom_clusters_data = []
     
-    if show_clusters:
+    if show_clusters or show_custom_clusters:
         c1, c2 = st.columns([1, 2])
         with c1:
-            # Берем значение из tdata, по умолчанию 50
-            overlap_pct = st.slider(
-                "Порог отсечения", 
-                min_value=10, max_value=100, 
-                value=tdata.get("cluster_threshold", 50), 
-                step=5, 
-                key=f"clu_bins_{ticker}", 
-                help="10 = показать все зоны, 100 = только максимальный объём (POC)"
-            )
-            tdata["cluster_threshold"] = overlap_pct  # <--- СОХРАНЯЕМ В JSON
+            overlap_pct = st.slider("Порог отсечения", min_value=10, max_value=100, value=tdata.get("cluster_threshold", 50), step=5, key=f"clu_bins_{ticker}", help="10 = показать все зоны, 100 = только максимальный объём (POC)")
+            tdata["cluster_threshold"] = overlap_pct
             
         with c2:
-            d1_pts = tdata["charts"]["D1"]["channel"]
-            if len(d1_pts) == 3:
-                cluster_start_time = pd.to_datetime(d1_pts[2][0])
-                st.caption(f"Анализ M10 от {cluster_start_time.strftime('%d.%m.%Y %H:%M')}")
-            else:
-                st.caption("Для кластеров нужен канал на D1 (3 точки)")
+            if show_clusters:
+                d1_pts = tdata["charts"]["D1"]["channel"]
+                if len(d1_pts) == 3:
+                    cluster_start_time = pd.to_datetime(d1_pts[2][0])
+                    st.caption(f"Кластеры (канал): от {cluster_start_time.strftime('%d.%m.%Y %H:%M')}")
+                else:
+                    st.caption("Для кластеров нужен канал на D1 (3 точки)")
+            
+            if show_custom_clusters:
+                cr_pts = tdata["charts"]["D1"].get("cluster_range", [])
+                if len(cr_pts) == 2:
+                    t1 = pd.to_datetime(cr_pts[0][0])
+                    t2 = pd.to_datetime(cr_pts[1][0])
+                    st.caption(f"Кластеры (диапазон): {min(t1, t2).strftime('%d.%m.%Y')} – {max(t1, t2).strftime('%d.%m.%Y')}")
+                else:
+                    st.caption("Для диапазона кластеров нужны 2 точки на D1")
 
-        if cluster_start_time:
+        if show_clusters and cluster_start_time:
             df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
             if not df_m10.empty:
                 df_m10_filtered = df_m10.loc[cluster_start_time:]
                 clusters_data = calculate_volume_profile(df_m10_filtered, tf_name="M10", threshold_pct=overlap_pct)
             else:
                 st.caption("Нет данных M10 для анализа")
+
+        if show_custom_clusters:
+            cr_pts = tdata["charts"]["D1"].get("cluster_range", [])
+            if len(cr_pts) == 2:
+                t1 = pd.to_datetime(cr_pts[0][0])
+                t2 = pd.to_datetime(cr_pts[1][0])
+                t_start, t_end = min(t1, t2), max(t1, t2)
+                df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
+                if not df_m10.empty:
+                    df_custom = df_m10.loc[t_start:t_end]
+                    if not df_custom.empty:
+                        custom_clusters_data = calculate_volume_profile(df_custom, tf_name="M10", threshold_pct=overlap_pct)
+                    else:
+                        st.caption("Нет данных M10 в выбранном диапазоне")
     # =====================================
 
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
         with tab:
-            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data, cluster_start_time)
+            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data, custom_clusters_data)
 
     if plan:
         st.markdown("#### Результаты расчета")
@@ -169,11 +166,8 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
             ("Максимально допустимый риск (руб.)", money(plan["risk_budget"]), ""),
             ("ТВХ", num(plan["entry"]), ""),
             ("Стоп-лосс (SL)", num(plan["sl"]), "fail" if sl_wrong else ""),
-            
-            # Новые параметры по расчету
             ("Минимальный TP (с учетом комиссий)", num(plan["min_tp"]), "ok" if not tp_wrong else ""),
             ("Целевая прибыль (RR x Риск)", money(plan["target_profit_rub"]), "ok"),
-            
             ("Тейк-профит (TP)", num(plan["tp"]) if plan["tp"] else "—", "fail" if tp_wrong else ""),
             ("Доступно контрактов", f'{plan["qty_recommended"]} шт.', "fail" if qty_fail else ""),
             ("Риск в сделке", money(plan["risk_rub"]), "fail" if risk_fail else "ok"),
@@ -223,40 +217,33 @@ def snap_points(pts, df):
                 snapped.append([p_str, p_val])
     return snapped
 
-def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data=None, cluster_start_time=None):
-    # Перенесено наверх, чтобы переключатели могли читать и сохранять свои состояния
+def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data=None, custom_clusters_data=None):
     chart_data = tdata["charts"][tf_name]
 
-    if tf_name == "D1": available_tools = ["channel", "fib_d1"]
+    if tf_name == "D1": available_tools = ["channel", "fib_d1", "cluster_range"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
 
     c1, c2 = st.columns([1, 1])
     with c1:
-        tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS[x]) or available_tools[0]
+        tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS.get(x, x)) or available_tools[0]
     with c2:
-        # 2 колонки, по 2 элемента в каждой
         cc1, cc2 = st.columns(2)
-        
-        # Достаем сохраненные значения или ставим True по умолчанию
         cur_tools = chart_data.get("show_tools", True)
         cur_pos = chart_data.get("show_position", True)
         cur_rr = chart_data.get("show_rr", True)
         cur_info = chart_data.get("show_info", True)
 
         show_tools = cc1.toggle("Разметка", value=cur_tools, key=f"tools_{ticker}_{tf_name}")
-        chart_data["show_tools"] = show_tools  # <--- СОХРАНЯЕМ В JSON
-        
+        chart_data["show_tools"] = show_tools
         show_position = cc1.toggle("Позиция", value=cur_pos, key=f"pos_{ticker}_{tf_name}")
-        chart_data["show_position"] = show_position  # <--- СОХРАНЯЕМ В JSON
-        
+        chart_data["show_position"] = show_position
         show_rr = cc2.toggle("Зоны RR", value=cur_rr, key=f"rr_{ticker}_{tf_name}")
-        chart_data["show_rr"] = show_rr  # <--- СОХРАНЯЕМ В JSON
-        
+        chart_data["show_rr"] = show_rr
         show_info = cc2.toggle("Информация", value=cur_info, key=f"info_{ticker}_{tf_name}")
-        chart_data["show_info"] = show_info  # <--- СОХРАНЯЕМ В JSON
+        chart_data["show_info"] = show_info
 
-    if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
+    if tf_name == "D1": target_tool = tool if tool in ["channel", "cluster_range"] else "fib"
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
     else: target_tool = "zigzag"
 
@@ -299,7 +286,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         y = inst.round_price(y)
         bar = view.iloc[view.index.get_indexer([pd.to_datetime(x)], method='nearest')[0]]
         new_pts = pts.copy()
-        max_pts = 3 if tool == "channel" else (None if "zigzag" in tool else 2)
+        max_pts = 3 if tool == "channel" else (2 if tool in ["fib", "cluster_range"] else None)
 
         if max_pts is None or len(new_pts) < max_pts:
             if tool == "channel":
@@ -321,6 +308,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                         t_mid = view_period['Low'].idxmin()
                         y_mid = float(view_period.loc[t_mid, 'Low'])
                     new_pts = [[str(t_start), y_start], [str(t_mid), y_mid], [str(t_end), y_end]]
+            elif tool == "cluster_range":
+                new_pts.append([str(bar.name), y])
             elif "zigzag" in tool:
                 if new_pts and pd.to_datetime(new_pts[-1][0]) == bar.name:
                     last_y = new_pts[-1][1]
@@ -355,20 +344,24 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     if tf_name == "D1":
         d1_pts_s = snap_points(d1_pts, view)
         d1_fib_s = snap_points(tdata["charts"]["D1"]["fib"], view)
+        d1_cr_s = snap_points(tdata["charts"]["D1"].get("cluster_range", []), view)
         h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
         m10_zig_s, m1_zig_s = tdata["charts"]["M10"]["zigzag"], tdata["charts"]["M1"]["zigzag"]
     elif tf_name == "H1":
         d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
+        d1_cr_s = tdata["charts"]["D1"].get("cluster_range", [])
         h1_zig_s = snap_points(h1_zig, view)
         h1_fib_s = snap_points(tdata["charts"]["H1"]["fib"], view)
         m10_zig_s, m1_zig_s = tdata["charts"]["M10"]["zigzag"], tdata["charts"]["M1"]["zigzag"]
     elif tf_name == "M10":
         d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
+        d1_cr_s = tdata["charts"]["D1"].get("cluster_range", [])
         h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
         m10_zig_s = snap_points(tdata["charts"]["M10"]["zigzag"], view)
         m1_zig_s = tdata["charts"]["M1"]["zigzag"]
     else:
         d1_pts_s, d1_fib_s = d1_pts, tdata["charts"]["D1"]["fib"]
+        d1_cr_s = tdata["charts"]["D1"].get("cluster_range", [])
         h1_zig_s, h1_fib_s = h1_zig, tdata["charts"]["H1"]["fib"]
         m10_zig_s = tdata["charts"]["M10"]["zigzag"]
         m1_zig_s = snap_points(tdata["charts"]["M1"]["zigzag"], view)
@@ -379,13 +372,20 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
-    if clusters_data and cluster_start_time:
-        charts.draw_clusters(fig, clusters_data, x_left, x_right)
+    # Отрисовка кластеров
+    if clusters_data:
+        charts.draw_clusters(fig, clusters_data, x_left, x_right, color="orange")
+    if custom_clusters_data:
+        charts.draw_clusters(fig, custom_clusters_data, x_left, x_right, color="blue")
 
     if show_tools:
         if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
         if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
         if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
+        
+        # Отрисовка линии самого инструмента "Диапазон кластеров" (соединяем 2 точки)
+        if d1_cr_s and len(d1_cr_s) == 2:
+            charts.draw_zigzag(fig, d1_cr_s, "#2196F3", "Диапазон кластеров")
 
         if h1_zig_s: charts.draw_zigzag(fig, h1_zig_s, "#26a69a", "Тенденция (H1)")
         if m10_zig_s and tf_name in ["H1", "M10", "M1"]: charts.draw_zigzag(fig, m10_zig_s, "#ef5350", "Зигзаг (M10)")
@@ -412,7 +412,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                 "Откат E": b["e_price"] if b["has_pullback"] else "-",
                 "E vs 0.5": b["e_vs_b"] if b["has_pullback"] else "-",
                 "Откат %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                # ИСПРАВЛЕНА ТАБЛИЦА:
                 "Оценка отката": {"Слабый": "Слабый (тренд сильный)", "Сильный": "Сильный (тренд слабый)", "Нормальный": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-"
             } for b in breakouts])
             st.dataframe(df_metrics, use_container_width=True, hide_index=True)
