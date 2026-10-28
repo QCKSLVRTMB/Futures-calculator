@@ -127,11 +127,13 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
             show_rr = st.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
             show_clusters = st.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}") if tf_name == "H1" else False
             show_position = st.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
+            show_info = st.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
         else:
-            cc1, cc2, cc3 = st.columns(3)
+            cc1, cc2, cc3, cc4 = st.columns(4)
             show_rr = cc1.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
             show_clusters = cc2.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}") if tf_name == "H1" else False
             show_position = cc3.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
+            show_info = cc4.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
 
     chart_data = tdata["charts"][tf_name]
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
@@ -242,7 +244,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
                 chart_data[target_tool] = new_pts
                 state.autosave(force=True)
 
-    fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile)
+    # Передаем show_info в функцию построения
+    fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile, show_info=show_info)
 
     if tf_name == "D1": time_buffer = pd.Timedelta(days=10)
     elif tf_name == "H1": time_buffer = pd.Timedelta(hours=12)
