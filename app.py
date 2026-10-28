@@ -22,9 +22,9 @@ with col1:
     st.markdown("<p style='color: #475569; margin: 0; font-size: 16px;'>сообщества QCKSLVR TRADING</p>", unsafe_allow_html=True)
 with col2:
     if os.path.exists("logo.png"):
-        st.image("logo.png", use_column_width=False, width=100)
+        st.image("logo.png", use_column_width=False, width=200)
     elif os.path.exists("logo.jpg"):
-        st.image("logo.jpg", use_column_width=False, width=100)
+        st.image("logo.jpg", use_column_width=False, width=200)
 
 st.write("")
 
