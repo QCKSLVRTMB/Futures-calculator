@@ -344,7 +344,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     x_right = view.index[-1] + time_buffer
 
     if clusters_data and cluster_start_time:
-        charts.draw_clusters(fig, clusters_data, cluster_start_time, x_right)
+        charts.draw_clusters(fig, clusters_data, x_left, x_right)
 
     if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
     if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
