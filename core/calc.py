@@ -346,73 +346,67 @@ def get_volume_colors(df, tf_name, sensitivity=3.0):
     return colors
 
 
-def calculate_volume_profile(df, tf_name="M10", bins=50, sensitivity=3.0):
-    """Рассчитывает горизонтальный профиль объема на основе отфильтрованных баров."""
+def calculate_volume_profile(df, tf_name="M10", threshold_pct=50, sensitivity=3.0):
+    """Профиль значимых объёмов: зона каждого бара -> на всю ширину графика.
+    Объёмы накладывающихся зон складываются; яркость растёт с суммой.
+    threshold_pct (10–100): порог отсечения слабых зон (10 = показать всё, 100 = только POC)."""
     if df.empty or 'Volume' not in df.columns: return []
     
-    # 1. Берем цвета из той же функции, что и для гистограммы (M10 -> красные, черные)
+    # 1. Тот же фильтр, что и для гистограммы (M10 -> black/red)
     colors = get_volume_colors(df, tf_name, sensitivity)
     anomaly_color = "red" if tf_name in ("M10", "M1") else ("green" if tf_name == "H1" else ("blue" if tf_name == "D1" else None))
     
-    valid_indices = []
-    for i in range(len(df)):
-        if colors[i] == "black" or colors[i] == anomaly_color:
-            valid_indices.append(i)
-            
+    valid_indices = [i for i in range(len(df)) if colors[i] == "black" or colors[i] == anomaly_color]
     if not valid_indices: return []
     
     df_valid = df.iloc[valid_indices]
-    price_min = df_valid['Low'].min()
-    price_max = df_valid['High'].max()
-    if price_max <= price_min: return []
     
-    bin_size = (price_max - price_min) / bins
-    
-    buy_vols = np.zeros(bins)
-    sell_vols = np.zeros(bins)
-    
-    # 2. Распределяем объем отфильтрованных баров по ценовым бинам
+    # 2. Зона каждого значимого бара: buy -> [LOW, CLOSE], sell -> [CLOSE, HIGH]
+    zones = []
     for _, row in df_valid.iterrows():
-        vol = float(row['Volume'])
         is_buy = float(row['Close']) > float(row['Open'])
         y_low = float(row['Low']) if is_buy else float(row['Close'])
         y_high = float(row['Close']) if is_buy else float(row['High'])
-        
-        start_bin = int((y_low - price_min) / bin_size)
-        end_bin = int((y_high - price_min) / bin_size)
-        start_bin = max(0, min(start_bin, bins-1))
-        end_bin = max(0, min(end_bin, bins-1))
-        
-        n_bins = end_bin - start_bin + 1
-        vol_per_bin = vol / n_bins
-        
-        for b in range(start_bin, end_bin + 1):
-            if is_buy: buy_vols[b] += vol_per_bin
-            else: sell_vols[b] += vol_per_bin
-            
-    total_vols = buy_vols + sell_vols
-    max_vol = total_vols.max()
-    if max_vol == 0: return []
+        vol = float(row['Volume'])
+        if y_high <= y_low or vol <= 0: continue
+        zones.append({"low": y_low, "high": y_high, "vol": vol})
     
-    # 3. Формируем зоны для отрисовки
-    zones = []
-    for b in range(bins):
-        if total_vols[b] == 0: continue
-        
-        low_price = price_min + b * bin_size
-        high_price = low_price + bin_size
-        
-        # Доминирующий цвет
-        is_buy_dominant = buy_vols[b] >= sell_vols[b]
-        color = "rgba(38, 166, 154, " if is_buy_dominant else "rgba(239, 83, 80, "
-        
-        # Прозрачность: от 10% до 55% в зависимости от объема
-        opacity = 0.10 + 0.45 * (total_vols[b] / max_vol)
-        
-        zones.append({
-            "low": low_price,
-            "high": high_price,
-            "color_base": color,
-            "opacity": opacity
+    if not zones: return []
+    
+    # 3. Все границы зон = точки разрыва; между соседними состав перекрытия постоянен
+    breakpoints = sorted(set([z["low"] for z in zones] + [z["high"] for z in zones]))
+    if len(breakpoints) < 2: return []
+    
+    bands = []
+    for i in range(len(breakpoints) - 1):
+        lo, hi = breakpoints[i], breakpoints[i + 1]
+        if hi <= lo: continue
+        total_vol = sum(z["vol"] for z in zones if z["low"] <= lo and z["high"] >= hi)
+        if total_vol <= 0: continue
+        bands.append({"low": lo, "high": hi, "vol": total_vol})
+    
+    if not bands: return []
+    
+    max_vol = max(b["vol"] for b in bands)
+    min_vol = min(b["vol"] for b in bands)
+    
+    # 4. Порог: 10 -> min_vol (всё), 100 -> max_vol (только POC)
+    if max_vol > min_vol:
+        threshold = min_vol + (max_vol - min_vol) * (int(threshold_pct) - 10) / 90.0
+    else:
+        threshold = min_vol
+    
+    # 5. Слабые отсекаем; яркость линейно от порога до max
+    zones_out = []
+    for b in bands:
+        if b["vol"] < threshold: continue
+        if max_vol > threshold:
+            opacity = 0.15 + 0.45 * (b["vol"] - threshold) / (max_vol - threshold)
+        else:
+            opacity = 0.60
+        zones_out.append({
+            "low": b["low"],
+            "high": b["high"],
+            "opacity": opacity,
         })
-    return zones
+    return zones_out
