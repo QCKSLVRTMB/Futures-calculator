@@ -16,9 +16,10 @@ def update_active_tickers():
 def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margin_type, mobile=False):
     st.subheader("Данные с биржи")
 
-    if not iss_df.empty and "VALTODAY" in iss_df.columns:
-        active_iss = iss_df[iss_df["VALTODAY"].fillna(0) > 0]
-        available_tickers = sorted(active_iss["SECID"].dropna().unique().tolist())
+    if not iss_df.empty and "SECID" in iss_df.columns:
+        # ИСПРАВЛЕНО: приводим SECID к верхнему регистру для выпадающего списка
+        active_iss = iss_df[iss_df["VALTODAY"].fillna(0) > 0] if "VALTODAY" in iss_df.columns else iss_df
+        available_tickers = sorted(active_iss["SECID"].dropna().astype(str).str.upper().unique().tolist())
     else:
         available_tickers = []
 
@@ -54,7 +55,8 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
     for t in picked:
         inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, ims_df=ims_df, margin_type=margin_type)
         instruments[t] = inst
-        if not iss_df.empty and "SECID" in iss_df.columns and t not in iss_df["SECID"].values:
+        # ИСПРАВЛЕНО: проверка наличия тикера в ISS без учета регистра
+        if not iss_df.empty and "SECID" in iss_df.columns and t.upper() not in iss_df["SECID"].astype(str).str.upper().values:
             missing_in_iss.append(t)
 
     # === 1. НАСТРОЙКА ТРЕНДОВ ===
@@ -154,7 +156,11 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
     )
 
     if missing_in_iss:
-        st.warning(f"⚠ Тикеры не найдены в ISS: **{', '.join(missing_in_iss)}**. Возможно, контракт ещё не торгуется или тикер указан с ошибкой.")
+        st.warning(f"⚠ Тикеры не найдены в ISS: **{', '.join(missing_in_iss)}**.")
+        # Диагностика: показываем похожие тикеры
+        similar = [s for s in iss_df["SECID"].astype(str).str.upper().unique() if "SI" in s]
+        if similar:
+            st.caption(f"Похожие SECID в ISS: {', '.join(similar[:20])}")
 
     if ims_df is not None and not ims_df.empty and "IM_TIME" in ims_df.columns:
         ims_time = ims_df["IM_TIME"].max()
