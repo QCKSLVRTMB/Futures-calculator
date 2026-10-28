@@ -243,8 +243,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
             if new_pts != pts:
                 chart_data[target_tool] = new_pts
                 state.autosave(force=True)
+                st.rerun(scope="fragment")  # <-- ИСПРАВЛЕНИЕ: Мгновенная перерисовка
 
-    # Передаем show_info в функцию построения
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile, show_info=show_info)
 
     if tf_name == "D1": time_buffer = pd.Timedelta(days=10)
