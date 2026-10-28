@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+from core.calc import get_volume_colors
 
 GREEN  = "#26a69a"
 RED    = "#ef5350"
@@ -81,14 +82,18 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low, y1=low + diff/3, fillcolor=color_bottom, line=dict(width=0), layer="below", row=1, col=1)
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low + 2*diff/3, y1=high, fillcolor=color_top, line=dict(width=0), layer="below", row=1, col=1)
 
-def draw_clusters(fig, clusters, x_left, x_right):
-    sorted_clusters = sorted(clusters, key=lambda c: (c.get("is_strong", False), c.get("volume", 0)))
-    for cl in sorted_clusters:
-        if cl.get("is_strong", False):
-            fill_color = "rgba(25, 118, 210, 0.15)"
+def draw_clusters(fig, clusters, x_right):
+    """Рисует зоны кластеров с прозрачностью 5% для наложения."""
+    for cl in clusters:
+        if cl["is_buy"]:
+            fill_color = "rgba(38, 166, 154, 0.05)" # Зеленый 5%
         else:
-            fill_color = "rgba(255, 140, 0, 0.15)"
-        fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"], fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1)
+            fill_color = "rgba(239, 83, 80, 0.05)"  # Красный 5%
+            
+        fig.add_shape(
+            type="rect", x0=cl["time"], x1=x_right, y0=cl["low"], y1=cl["high"],
+            fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1
+        )
 
 def draw_breakouts(fig, breakouts, decimals):
     drawn_coords = set()
@@ -136,25 +141,7 @@ def draw_trade_visuals(fig, plan, x_left, x_right, decimals):
     fig.add_annotation(x=x_left, y=entry, text=center_text, showarrow=False, xanchor="left", bgcolor="rgba(220, 53, 69, 0.7)", font=dict(color="white", size=10), row=1, col=1)
 
 def _volume_colors(df, tf_name):
-    is_d1 = tf_name == "D1"
-    is_h1 = tf_name == "H1"
-    is_min = tf_name in ("M10", "M1")
-    volumes = df["Volume"].values
-    times = df.index
-    colors = ["gray"] * len(df)
-    for i in range(2, len(df)):
-        if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]: colors[i] = "black"
-    if is_h1:
-        for i in range(len(df)):
-            if times[i].hour == 10 and times[i].minute == 0:
-                prev = [volumes[j] for j in range(i-1, -1, -1) if times[j].hour == 10 and times[j].minute == 0][:2]
-                if len(prev) == 2 and volumes[i] > prev[0] and volumes[i] > prev[1]: colors[i] = "black"
-    anomaly = "red" if is_min else ("green" if is_h1 else ("blue" if is_d1 else None))
-    if anomaly:
-        avg = pd.Series(volumes).rolling(20, min_periods=5).mean().shift(1)
-        for i in range(len(volumes)):
-            if pd.notna(avg.iloc[i]) and avg.iloc[i] > 0 and volumes[i] > avg.iloc[i] * 3.0: colors[i] = anomaly
-    return colors
+    return get_volume_colors(df, tf_name, sensitivity=3.0)
 
 def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.8, 0.2])
@@ -228,7 +215,6 @@ def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
         margin=dict(l=10, r=10, t=50, b=50), 
         plot_bgcolor="white", paper_bgcolor="white", 
         showlegend=False, hovermode=hovermode, hoverlabel=hoverlabel
-        # UIREVISION УБРАН
     )
     return fig
 
