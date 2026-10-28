@@ -243,7 +243,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
             if new_pts != pts:
                 chart_data[target_tool] = new_pts
                 state.autosave(force=True)
-                st.rerun(scope="fragment")  # <-- ИСПРАВЛЕНИЕ: Мгновенная перерисовка
+                st.rerun(scope="fragment")
 
     fig = charts.build_figure(view, tf_name=tf_name, title=f"{ticker} — {tf_name}", decimals=inst.decimals, mobile=mobile, show_info=show_info)
 
@@ -269,7 +269,10 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     if h1_fib: charts.draw_fib(fig, h1_fib, x_left, x_right, "green", "0.5 H1")
 
     if h1_zig: charts.draw_zigzag(fig, h1_zig, "#26a69a", "Тенденция (H1)")
-    if m10_zig and tf_name in ["H1", "M10"]: charts.draw_zigzag(fig, m10_zig, "#ef5350", "Зигзаг (M10)")
+    
+    # ИЗМЕНЕНИЕ: на M1 также отображается зигзаг с M10
+    if m10_zig and tf_name in ["H1", "M10", "M1"]: charts.draw_zigzag(fig, m10_zig, "#ef5350", "Зигзаг (M10)")
+    
     if m1_zig  and tf_name == "M1": charts.draw_zigzag(fig, m1_zig, "#ef5350", "Зигзаг (M1)")
 
     if h1_zig and tf_name == "H1":
