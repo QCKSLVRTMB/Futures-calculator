@@ -9,6 +9,7 @@ from core.market import fetch_moex_forts, fetch_moex_ims, load_api, load_go, loa
 from tabs.main_table import render_main_tab
 from tabs.screener import render_screener
 from tabs.trade_planner import render_trade_planner
+from tabs.help import render_help_tab  # <-- ДОБАВЛЕН ИМПОРТ
 from ui.theme import inject_css, seg
 
 st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="expanded")
@@ -68,7 +69,6 @@ with st.sidebar:
     st.slider("Макс. использование депо под ГО, %", 10, 100, int(G.get("max_margin_util", 50)), 5, key="sb_mmu", on_change=_sync, args=("sb_mmu", "max_margin_util"))
     st.selectbox("Комиссия", list(TARIFF_CONFIGS), key="sb_comm", index=list(TARIFF_CONFIGS).index(G["commission"]), on_change=_sync, args=("sb_comm", "commission"))
     
-    # ИЗМЕНЕНО: Категория риска с красивым отображением
     st.selectbox(
         "Категория риска", 
         MARGIN_LEVELS, 
@@ -106,7 +106,8 @@ api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 tickers = state.active_tickers()
 tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" if tickers else "Калькуляторы фьючерсов"
 
-tab_market, tab_screen, tab_plan = st.tabs(["Данные", "Скринер", tab_plan_name])
+# ДОБАВЛЕНА ВКЛАДКА "СПРАВКА"
+tab_market, tab_screen, tab_plan, tab_help = st.tabs(["Данные", "Скринер", tab_plan_name, "Справка"])
 
 with tab_market:
     render_main_tab(
@@ -124,5 +125,9 @@ with tab_plan:
         active = seg("Инструмент", tickers, key="plan_ticker", default=st.session_state.get("plan_ticker", tickers[0]))
         active = active if active in tickers else tickers[0]
         render_trade_planner(ticker=active, iss_df=iss_df, ims_df=ims_df, go_df=go_df, api_df=api_df, md_df=md_df, deposit=G["deposit"], risk_pct=G["risk_pct"], rr_ratio=G["rr_ratio"], commission=G["commission"], strategy=G["strategy"], mobile=mobile)
+
+# ОТОБРАЖЕНИЕ ВКЛАДКИ "СПРАВКА"
+with tab_help:
+    render_help_tab()
 
 state.autosave()
