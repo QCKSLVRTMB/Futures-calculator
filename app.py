@@ -11,7 +11,6 @@ from tabs.screener import render_screener
 from tabs.trade_planner import render_trade_planner
 from ui.theme import inject_css, seg
 
-# ИСПРАВЛЕНО: initial_sidebar_state="expanded", чтобы меню не пропадало
 st.set_page_config(page_title="QCKSLVR TRADING", page_icon="logo.png", layout="wide", initial_sidebar_state="expanded")
 inject_css()
 
@@ -74,7 +73,8 @@ with st.sidebar:
         parsed = storage.loads(up.getvalue().decode("utf-8"))
         if parsed:
             state.replace_state(parsed)
-            for k in [k for k in st.session_state if k.startswith(("m_", "tf_", "tool_", "dir_", "sl_", "tp_", "entries_", "chart_"))]:
+            # ДОБАВЛЕН "picker_" и "main_" в очистку
+            for k in [k for k in st.session_state if k.startswith(("m_", "tf_", "tool_", "dir_", "sl_", "tp_", "entries_", "chart_", "picker_", "main_"))]:
                 del st.session_state[k]
             st.success("Загружено"); st.rerun()
         else: st.error("Неверный формат файла")
@@ -84,11 +84,9 @@ mobile = bool(G["mobile_view"])
 iss_df, ims_df = fetch_moex_forts(), fetch_moex_ims()
 api_df, go_df, md_df = load_api(), load_go(), load_marketdata()
 
-# === ДИНАМИЧЕСКОЕ НАЗВАНИЕ ВКЛАДКИ ===
 tickers = state.active_tickers()
 tab_plan_name = f"Калькуляторы фьючерсов ({len(tickers)})" if tickers else "Калькуляторы фьючерсов"
 
-# Вкладка "Биржа" переименована в "Данные"
 tab_market, tab_screen, tab_plan = st.tabs(["Данные", "Скринер", tab_plan_name])
 
 with tab_market:
