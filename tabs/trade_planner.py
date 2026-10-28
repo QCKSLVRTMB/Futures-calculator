@@ -224,9 +224,12 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
 
+    # Локальные названия для UI
+    tool_labels = {"cluster_range": "Диапазон кластеров"}
+
     c1, c2 = st.columns([1, 1])
     with c1:
-        tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: TOOLS.get(x, x)) or available_tools[0]
+        tool = seg("Инструмент", available_tools, key=f"tool_{ticker}_{tf_name}", default=available_tools[0], fmt=lambda x: tool_labels.get(x, TOOLS.get(x, x))) or available_tools[0]
     with c2:
         cc1, cc2 = st.columns(2)
         cur_tools = chart_data.get("show_tools", True)
@@ -246,6 +249,10 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     if tf_name == "D1": target_tool = tool if tool in ["channel", "cluster_range"] else "fib"
     elif tf_name == "H1": target_tool = "zigzag" if tool == "zigzag" else "fib"
     else: target_tool = "zigzag"
+
+    # Инициализация списка точек, чтобы избежать KeyError
+    if target_tool not in chart_data:
+        chart_data[target_tool] = []
 
     b1, b2 = st.columns(2)
     if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
