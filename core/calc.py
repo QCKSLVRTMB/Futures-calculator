@@ -340,10 +340,20 @@ def analyze_manual_zigzag(pts, df):
                 e_delta = s * (d_p - e_p)
                 fib_05 = d_p - s * curr_height * 0.5
                 retracement_pct = (e_delta / curr_height * 100) if curr_height > 0 else 0
-                strong_txt, weak_txt = ("выше 0.5", "ниже 0.5") if s > 0 else ("ниже 0.5", "выше 0.5")
-                if s * (e_p - fib_05) > 0: pullback_verdict, e_vs_05 = "Сильный", strong_txt
-                elif s * (e_p - fib_05) < 0: pullback_verdict, e_vs_05 = "Слабый", weak_txt
-                else: pullback_verdict, e_vs_05 = "Нормальный", "на уровне 0.5"
+                
+                # ИСПРАВЛЕНА ЛОГИКА ТЕРМИНОВ:
+                # Слабый откат (не дошел до 0.5) = сильный тренд.
+                # Сильный откат (глубже 0.5) = слабый тренд.
+                if s * (e_p - fib_05) > 0:
+                    pullback_verdict = "Слабый"
+                    e_vs_05 = "выше 0.5" if s > 0 else "ниже 0.5"
+                elif s * (e_p - fib_05) < 0:
+                    pullback_verdict = "Сильный"
+                    e_vs_05 = "ниже 0.5" if s > 0 else "выше 0.5"
+                else:
+                    pullback_verdict = "Нормальный"
+                    e_vs_05 = "на уровне 0.5"
+                    
                 r0, r1 = b.span(d_t, e_t)
                 retr_bars, retr_vol = r1 - r0, b.vsum(r0, r1)
             else: e_t = e_p = None
