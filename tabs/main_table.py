@@ -1,7 +1,6 @@
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 from core import state
 from core.market import to_float, vlookup
 from core.config import TREND_VALUES, MARGIN_COL_MAP
@@ -34,7 +33,13 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
     st.markdown("#### Выбор инструментов")
     c1, c2 = st.columns([3, 2])
     with c1:
-        st.multiselect("Выбрать из списка MOEX ISS", options=available_tickers, key="picker_ms", on_change=update_active_tickers)
+        st.multiselect(
+            "Выбрать из списка MOEX ISS", 
+            options=available_tickers, 
+            key="picker_ms", 
+            on_change=update_active_tickers,
+            help="Нажмите на крестик рядом с тикером, чтобы удалить его"
+        )
     with c2:
         st.text_input("Ввести тикер вручную (через запятую)", key="picker_txt", on_change=update_active_tickers)
 
@@ -43,70 +48,85 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, deposit, margin_type, mobil
         st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
-    rows = []
-    for t in picked:
-        # Используем get_instrument для сбора всех данных в одном месте
-        inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=margin_type)
-        
-        # Логика расчета доступных контрактов (берем минимальное из ГО LONG/SHORT)
-        margin_go = min(inst.margin_long, inst.margin_short) if inst.margin_long > 0 and inst.margin_short > 0 else max(inst.margin_long, inst.margin_short)
-        max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
-        
-        risk_pct = round(margin_go / deposit * 100, 2) if margin_go > 0 and deposit > 0 else 0.0
+    # === 1. НАСТРОЙКА ТРЕНДОВ (Спрятана в спойлер, чтобы не мешать) ===
+    with st.expander("Настройка параметров рынка (Тренд, Волна, Тенденция)", expanded=False):
+        rows = []
+        for t in picked:
+            inst = get_instrument(t, iss_df=iss_df, go_df=go_df, api_df=api_df, md_df=md_df, margin_type=margin_type)
+            
+            margin_go = min(inst.margin_long, inst.margin_short) if inst.margin_long > 0 and inst.margin_short > 0 else max(inst.margin_long, inst.margin_short)
+            max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
+            risk_pct = round(margin_go / deposit * 100, 2) if margin_go > 0 and deposit > 0 else 0.0
 
-        # Получаем время обновления из ISS
-        update_time = "-"
-        if not iss_df.empty:
-            iss_row = iss_df[iss_df["SECID"] == t]
-            if not iss_row.empty and pd.notna(iss_row.iloc[0].get("Updated")):
-                update_time = pd.to_datetime(iss_row.iloc[0].get("Updated")).strftime("%d.%m.%y %H:%M")
-
-        m = state.ticker(t)["market"]
-        rows.append({
-            "Код контракта": inst.asset_code,
-            "Наименование контракта": inst.name,
-            "Тикер": t,
-            "Шаг цены": inst.min_step,
-            "Стоимость шага цены": inst.step_price,
-            "ГО LONG": inst.margin_long,
-            "ГО SHORT": inst.margin_short,
-            "Доступно контрактов": max_contracts,
-            "Рыночная цена": inst.price,
-            "Свободно для сделок": "",  # Оставляем пустым как в примере
-            "Дата экспирации": format_date(inst.expiry),
-            "Процент от депо": "100%", # Как в вашем примере
-            "Обновлено": update_time,
-            "Риск (ГО, %)": risk_pct,
-            "Тренд": m["trend"],
-            "Волна": m["wave"],
-            "Тенденция": m["tendency"],
-        })
+            m = state.ticker(t)["market"]
+            rows.append({
+                "Тикер": t,
+                "Наименование": inst.name,
+                "ГО": margin_go,
+                "Доступно": max_contracts,
+                "Риск, %": risk_pct,
+                "Тренд": m["trend"],
+                "Волна": m["wave"],
+                "Тенденция": m["tendency"],
+            })
+            
+        df = pd.DataFrame(rows)
         
-    df = pd.DataFrame(rows)
+        edited_df = st.data_editor(
+            df, use_container_width=True, hide_index=True,
+            column_config={
+                "Тренд": st.column_config.SelectboxColumn("Тренд", options=TREND_VALUES, required=True),
+                "Волна": st.column_config.SelectboxColumn("Волна", options=TREND_VALUES, required=True),
+                "Тенденция": st.column_config.SelectboxColumn("Тенденция", options=TREND_VALUES, required=True),
+                "ГО": st.column_config.NumberColumn(format="%.2f ₽"),
+                "Риск, %": st.column_config.ProgressColumn(format="%.2f%%", min_value=0, max_value=100),
+            },
+            disabled=["Тикер", "Наименование", "ГО", "Доступно", "Риск, %"],
+            key="main_table_editor"
+        )
 
-    st.markdown("#### Таблица данных")
+        for _, row in edited_df.iterrows():
+            state.ticker(row["Тикер"])["market"].update({"trend": row["Тренд"], "wave": row["Волна"], "tendency": row["Тенденция"]})
+        state.autosave()
+
+    # === 2. РЫНОЧНЫЕ ДАННЫЕ ИЗ ISS ===
+    st.markdown("#### Рыночные данные")
     
-    # Настраиваем формат чисел (динамические знаки после запятой)
-    step_fmt = f"%.{int(inst.decimals)}f" if 'inst' in locals() else "%.4f"
+    view = iss_df[iss_df["SECID"].isin(picked)].copy()
     
-    edited_df = st.data_editor(
-        df, use_container_width=True, hide_index=True,
-        column_config={
-            "Шаг цены": st.column_config.NumberColumn(format=step_fmt),
-            "Стоимость шага цены": st.column_config.NumberColumn(format=step_fmt),
-            "ГО LONG": st.column_config.NumberColumn(format="%.2f ₽"),
-            "ГО SHORT": st.column_config.NumberColumn(format="%.2f ₽"),
-            "Доступно контрактов": st.column_config.NumberColumn(format="%d"),
-            "Рыночная цена": st.column_config.NumberColumn(format="%.2f"),
-            "Риск (ГО, %)": st.column_config.ProgressColumn(format="%.2f%%", min_value=0, max_value=100),
-            "Тренд": st.column_config.SelectboxColumn("Тренд", options=TREND_VALUES, required=True),
-            "Волна": st.column_config.SelectboxColumn("Волна", options=TREND_VALUES, required=True),
-            "Тенденция": st.column_config.SelectboxColumn("Тенденция", options=TREND_VALUES, required=True),
-        },
-        disabled=["Код контракта", "Наименование контракта", "Тикер", "Шаг цены", "Стоимость шага цены", "ГО LONG", "ГО SHORT", "Доступно контрактов", "Рыночная цена", "Свободно для сделок", "Дата экспирации", "Процент от депо", "Обновлено", "Риск (ГО, %)"],
-        key="main_table_editor"
+    # Сортировка по объему торгов (ликвидности)
+    sort_col = "LOTVOLUME" if "LOTVOLUME" in view.columns else ("VALTODAY" if "VALTODAY" in view.columns else "SECID")
+    view = view.sort_values(by=sort_col, ascending=False)
+
+    # Подготовка колонок под скриншот
+    out = view[["SECID", "LAST", "LASTCHANGEPRCNT", "HIGH", "LOW", "LOTVOLUME", "NUMTRADES", "OPENPOSITION"]].copy()
+    out.columns = [
+        "Тикер", "Последняя сделка", "Изм. к закрытию", 
+        "Макс. за день", "Мин. за день", "Объем торгов (контр.)", 
+        "Число сделок", "Открытых позиций"
+    ]
+
+    # Функция для окрашивания процентов
+    def color_change(val):
+        if pd.isna(val): return ''
+        if val > 0: return 'color: #16a34a; font-weight: 600;'
+        elif val < 0: return 'color: #dc2626; font-weight: 600;'
+        return ''
+
+    # Форматирование (заменяем точки на запятые, тысячи на пробелы)
+    styled_df = out.style.map(color_change, subset=["Изм. к закрытию"]).format({
+        "Последняя сделка": lambda x: f"{x:,.4f}".replace(",", " ").replace(".", ",") if pd.notna(x) else "-",
+        "Изм. к закрытию": lambda x: f"{x:+.2f}%".replace(".", ",") if pd.notna(x) else "-",
+        "Макс. за день": lambda x: f"{x:,.4f}".replace(",", " ").replace(".", ",") if pd.notna(x) else "-",
+        "Мин. за день": lambda x: f"{x:,.4f}".replace(",", " ").replace(".", ",") if pd.notna(x) else "-",
+        "Объем торгов (контр.)": lambda x: f"{x:,.0f}".replace(",", " ") if pd.notna(x) else "-",
+        "Число сделок": lambda x: f"{x:,.0f}".replace(",", " ") if pd.notna(x) else "-",
+        "Открытых позиций": lambda x: f"{x:,.0f}".replace(",", " ") if pd.notna(x) else "-",
+    })
+
+    st.dataframe(
+        styled_df, 
+        use_container_width=True, 
+        hide_index=True,
+        height=400
     )
-
-    for _, row in edited_df.iterrows():
-        state.ticker(row["Тикер"])["market"].update({"trend": row["Тренд"], "wave": row["Волна"], "tendency": row["Тенденция"]})
-    state.autosave()
