@@ -116,7 +116,6 @@ def draw_breakouts(fig, breakouts, decimals):
         if brk.get("has_pullback") and brk.get("e_time") is not None:
             v = brk["pullback_verdict"]
             
-            # ИСПРАВЛЕНА ЦВЕТОВАЯ КАРТА: 
             # Слабый откат (хороший) = Зеленый. Сильный откат (плохой) = Красный.
             pbg = "rgba(25,135,84,0.9)" if v == "Слабый" else ("rgba(220,53,69,0.9)" if v == "Сильный" else "rgba(253,126,20,0.9)")
             
@@ -181,7 +180,8 @@ def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
     fig.update_yaxes(side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot", row=1, col=1)
     fig.update_yaxes(side="right", showgrid=True, gridcolor="lightgray", row=2, col=1)
     
-    fig.update_layout(title=title, height=450 if mobile else 700, margin=dict(l=10, r=10, t=50, b=50), plot_bgcolor="white", paper_bgcolor="white", showlegend=False, hovermode="closest", hoverlabel=hoverlabel, dragmode="pan")
+    # Высота графика увеличена в 2 раза
+    fig.update_layout(title=title, height=900 if mobile else 1400, margin=dict(l=10, r=10, t=50, b=50), plot_bgcolor="white", paper_bgcolor="white", showlegend=False, hovermode="closest", hoverlabel=hoverlabel, dragmode="pan")
     return fig
 
 PLOT_CONFIG = {"scrollZoom": True, "displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"], "doubleClick": "reset"}
