@@ -31,6 +31,18 @@ class Instrument:
         if not self.min_step: return round(p, self.decimals)
         return round(round(p / self.min_step) * self.min_step, self.decimals)
 
+
+def _clean_str(val, default="-"):
+    """Безопасно приводит значение к строке, корректно обрабатывая NaN и None."""
+    if val is None: return default
+    try:
+        if pd.isna(val): return default
+    except (TypeError, ValueError):
+        pass
+    s = str(val).strip()
+    return s if s else default
+
+
 def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=None, margin_type="КСУР") -> Instrument:
     inst = Instrument(ticker=ticker)
     row = pd.Series(dtype=object)
@@ -39,10 +51,12 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
         if not sel.empty: row = sel.iloc[0]
 
     if not row.empty:
-        inst.name = row.get("SHORTNAME") or "-"
-        inst.asset_code = row.get("ASSETCODE") or "-"
-        inst.expiry = str(row.get("LASTTRADEDATE") or "-")
-        inst.price = to_float(row.get("LAST")) or to_float(row.get("PREVSETTLEPRICE"))
+        inst.name = _clean_str(row.get("SHORTNAME"))
+        inst.asset_code = _clean_str(row.get("ASSETCODE"))
+        inst.expiry = _clean_str(row.get("LASTTRADEDATE"))
+
+        price_val = to_float(row.get("LAST")) or to_float(row.get("PREVSETTLEPRICE"))
+        inst.price = price_val
         inst.min_step = to_float(row.get("MINSTEP"), 1.0) or 1.0
         inst.step_price = to_float(row.get("STEPPRICE"), 1.0) or 1.0
         inst.decimals = int(to_float(row.get("DECIMALS"), 2))
@@ -64,20 +78,37 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
         cl, cs = MARGIN_COL_MAP.get(margin_type, (4, 5))
         inst.margin_long = to_float(vlookup(go_df, ticker, cl))
         inst.margin_short = to_float(vlookup(go_df, ticker, cs))
+
     if api_df is not None and not api_df.empty:
         if inst.min_step in (0, 1.0):
             inst.min_step = to_float(vlookup(api_df, ticker, 6), inst.min_step) or inst.min_step
             inst.step_price = to_float(vlookup(api_df, ticker, 17), inst.step_price) or inst.step_price
-        if inst.name == "-": inst.name = vlookup(api_df, ticker, 3)
-        if inst.expiry == "-": inst.expiry = str(vlookup(api_df, ticker, 7))
+
+        # Fallback для имени (если в ISS пусто)
+        if inst.name == "-": 
+            name_gs = vlookup(api_df, ticker, 3)
+            if name_gs != "-": inst.name = str(name_gs)
+
+        # ИСПРАВЛЕНО: Fallback для кода актива
+        if inst.asset_code == "-": 
+            code_gs = vlookup(api_df, ticker, 9)
+            if code_gs != "-": inst.asset_code = str(code_gs)
+
+        # Fallback для даты экспирации
+        if inst.expiry == "-": 
+            expiry_gs = vlookup(api_df, ticker, 7)
+            if expiry_gs != "-": inst.expiry = str(expiry_gs)
+
     if md_df is not None and not md_df.empty and inst.price == 0:
         inst.price = to_float(vlookup(md_df, ticker, 9))
     return inst
+
 
 def commission_per_side(inst: Instrument, price: float, tariff_name: str) -> float:
     cfg = TARIFF_CONFIGS.get(tariff_name, TARIFF_CONFIGS["Т-Инвестиции"])
     fee = (price * inst.point_value * cfg["broker_percent"]) if cfg["type"] == "percent" else cfg["broker_fee"]
     return max(fee, cfg.get("min_fee", 0.0)) + inst.exch_fee + cfg.get("clearing_fee", 0.0)
+
 
 def calc_avg_entry(entries: list[dict], default_price: float) -> tuple[float, int]:
     rows = [(float(e.get("price") or 0), int(e.get("qty") or 0)) for e in entries or []]
@@ -87,6 +118,7 @@ def calc_avg_entry(entries: list[dict], default_price: float) -> tuple[float, in
     if total_qty == 0:
         return sum(p for p, _ in rows) / len(rows), 0
     return sum(p * q for p, q in rows) / total_qty, total_qty
+
 
 def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: float | None, tp: float | None, deposit: float, risk_pct: float, rr_ratio: float, tariff: str, max_margin_util: float = 50.0) -> dict:
     pv = inst.point_value
@@ -156,6 +188,7 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
         "warnings": warnings,
     }
 
+
 # ==========================================
 # АНАЛИТИКА ГРАФИКОВ
 # ==========================================
@@ -173,6 +206,7 @@ def calculate_breakout_metrics(df, resistance_price, start_time, end_time, is_up
     df_active = df.loc[breakout_time:end_time]
     return len(df_active), df_active['Volume'].sum(), breakout_time
 
+
 def analyze_manual_zigzag(pts, df):
     if len(pts) < 4: return []
     pts = sorted(pts, key=lambda p: pd.to_datetime(p[0]))
@@ -186,7 +220,6 @@ def analyze_manual_zigzag(pts, df):
         d_time, d_price = pd.to_datetime(p_d[0]), p_d[1]
 
         if a_price < b_price and a_price < c_price < b_price and d_price > b_price:
-            # Восходящий тренд
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=True)
             curr_height = d_price - c_price
             prev_height = b_price - a_price
@@ -240,7 +273,6 @@ def analyze_manual_zigzag(pts, df):
                 "height_ratio": height_ratio, "bars_ratio": bars_ratio, "vol_ratio": vol_ratio
             })
         elif a_price > b_price and b_price < c_price < a_price and d_price < b_price:
-            # Нисходящий тренд
             bars, vol, brk_time = calculate_breakout_metrics(df, b_price, c_time, d_time, is_up=False)
             curr_height = c_price - d_price
             prev_height = a_price - b_price
@@ -304,6 +336,7 @@ def analyze_manual_zigzag(pts, df):
             brk["breakout_verdict"] = "normal"
             
     return breakouts
+
 
 def find_volume_clusters(df: pd.DataFrame, threshold_mult=3.0, window=20) -> list[dict]:
     if df.empty or 'Volume' not in df.columns: return []
