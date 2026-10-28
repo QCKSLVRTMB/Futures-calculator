@@ -73,7 +73,7 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     if show_clusters:
         c1, c2 = st.columns([1, 2])
         with c1:
-            bins = st.slider("Детализация", min_value=10, max_value=100, value=50, step=5, key=f"clu_bins_{ticker}")
+            overlap_pct = st.slider("Порог отсечения", min_value=10, max_value=100, value=50, step=5, key=f"clu_bins_{ticker}", help="10 = показать все зоны, 100 = только максимальный объём (POC)")
         with c2:
             d1_pts = tdata["charts"]["D1"]["channel"]
             if len(d1_pts) == 3:
@@ -86,7 +86,7 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
             df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
             if not df_m10.empty:
                 df_m10_filtered = df_m10.loc[cluster_start_time:]
-                clusters_data = calculate_volume_profile(df_m10_filtered, tf_name="M10", bins=bins)
+                clusters_data = calculate_volume_profile(df_m10_filtered, tf_name="M10", threshold_pct=overlap_pct)
             else:
                 st.caption("Нет данных M10 для анализа")
     # =====================================
