@@ -83,9 +83,9 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low + 2*diff/3, y1=high, fillcolor=color_top, line=dict(width=0), layer="below", row=1, col=1)
 
 def draw_clusters(fig, clusters, x_left, x_right):
-    """Рисует зоны кластеров (профиль объема) на всю ширину графика."""
+    """Рисует зоны кластеров (профиль объема) — оранжевые, ярче при наложении."""
     for cl in clusters:
-        fill_color = f"{cl['color_base']}{cl['opacity']})"
+        fill_color = f"rgba(251, 140, 0, {cl['opacity']:.2f})"
         fig.add_shape(
             type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"],
             fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1
@@ -111,120 +111,4 @@ def draw_breakouts(fig, breakouts, decimals):
         
         if brk.get('has_pullback') and brk.get('e_time') is not None:
             p_verdict = brk['pullback_verdict']
-            pullback_bg = "rgba(25, 135, 84, 0.9)" if p_verdict == "Сильный" else ("rgba(220, 53, 69, 0.9)" if p_verdict == "Слабый" else "rgba(253, 126, 20, 0.9)")
-            p_text = f"Откат: {brk['retracement_pct']:.1f}%<br>{brk['e_vs_b']} (0.5 Fib)<br>Бар: {brk['retr_bars']}<br>Vol: {brk['retr_vol']:,.0f}"
-            if (brk['e_time'], brk['e_price']) not in drawn_coords:
-                fig.add_annotation(x=brk['e_time'], y=brk['e_price'], text=p_text, showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor=pullback_bg, font=dict(color="white", size=10), bordercolor="black", row=1, col=1)
-                drawn_coords.add((brk['e_time'], brk['e_price']))
-            fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['peak_price'], x1=brk['peak_time'], y1=brk['e_price'], line=dict(color="#fd7e14", width=2, dash="dot"), row=1, col=1)
-            fig.add_shape(type="line", x0=brk['peak_time'], y0=brk['e_price'], x1=brk['e_time'], y1=brk['e_price'], line=dict(color="#fd7e14", width=2), row=1, col=1)
-
-def draw_trade_visuals(fig, plan, x_left, x_right, decimals):
-    if not plan or not plan.get("entry") or not plan.get("sl"): return
-    entry = plan["entry"]; sl = plan["sl"]; tp = plan.get("tp"); qty = plan.get("qty", 0)
-    fig.add_shape(type="line", x0=x_left, x1=x_right, y0=entry, y1=entry, line=dict(color="black", width=1, dash="dash"), row=1, col=1)
-    sl_pct = abs(entry - sl) / entry * 100 if entry else 0
-    sl_text = f"Стоп: {sl:,.{decimals}f} ({sl_pct:.2f}%) {abs(entry-sl):,.0f} пт., Кол-во: {qty}"
-    fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=min(entry, sl), y1=max(entry, sl), fillcolor="rgba(220, 53, 69, 0.15)", line=dict(width=0), layer="below", row=1, col=1)
-    fig.add_annotation(x=x_right, y=sl, text=sl_text, showarrow=False, xanchor="right", bgcolor="rgba(220, 53, 69, 0.9)", font=dict(color="white", size=10), row=1, col=1)
-    if tp:
-        tp_pct = abs(tp - entry) / entry * 100 if entry else 0
-        tp_text = f"Цель: {tp:,.{decimals}f} ({tp_pct:.2f}%) {abs(tp-entry):,.0f} пт., Кол-во: {qty}"
-        fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=min(entry, tp), y1=max(entry, tp), fillcolor="rgba(25, 135, 84, 0.15)", line=dict(width=0), layer="below", row=1, col=1)
-        fig.add_annotation(x=x_right, y=tp, text=tp_text, showarrow=False, xanchor="right", bgcolor="rgba(25, 135, 84, 0.9)", font=dict(color="white", size=10), row=1, col=1)
-    risk_rub = plan.get("risk_rub", 0); rr = plan.get("rr", 0)
-    center_text = f"Риск: {risk_rub:,.0f} ₽<br>R:R = 1:{rr:.2f}"
-    fig.add_annotation(x=x_left, y=entry, text=center_text, showarrow=False, xanchor="left", bgcolor="rgba(220, 53, 69, 0.7)", font=dict(color="white", size=10), row=1, col=1)
-
-def _volume_colors(df, tf_name):
-    return get_volume_colors(df, tf_name, sensitivity=3.0)
-
-def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.8, 0.2])
-    
-    df = df.copy()
-    df["Change"] = df["Close"].pct_change() * 100
-    
-    if show_info:
-        hover_temp = (
-            "%{x|%d.%m.%Y %H:%M}<br>"
-            "О: %{open:.DECIMALSf}<br>"
-            "В: %{high:.DECIMALSf}<br>"
-            "Н: %{low:.DECIMALSf}<br>"
-            "З: %{close:.DECIMALSf}<br>"
-            "Изм: %{customdata[0]:+.2f}%<br>"
-            "Вол: %{customdata[1]:,.0f}"
-            "<extra></extra>"
-        ).replace("DECIMALS", str(decimals))
-        
-        if tf_name == "D1": h_bg = "rgba(25,118,210,0.95)"
-        elif tf_name == "H1": h_bg = "rgba(38,166,154,0.95)"
-        else: h_bg = "rgba(239,83,80,0.95)"
-        
-        hovermode = "closest"
-        hoverlabel = dict(bgcolor=h_bg, font=dict(color="white", size=10), align="left")
-    else:
-        hover_temp = None
-        hovermode = "closest"
-        hoverlabel = None
-
-    fig.add_trace(go.Ohlc(
-        x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], 
-        increasing_line_color=BAR_LINE_COLOR, decreasing_line_color=BAR_LINE_COLOR, 
-        increasing_line_width=1.5, decreasing_line_width=1.5, name="",
-        customdata=df[["Change", "Volume"]],
-        hovertemplate=hover_temp
-    ), row=1, col=1)
-    
-    if "Volume" in df.columns:
-        fig.add_trace(go.Bar(x=df.index, y=df["Volume"], marker_color=_volume_colors(df, tf_name), name="Объем", hoverinfo="skip"), row=2, col=1)
-        
-    breaks = [dict(bounds=["sat", "mon"])]
-    if tf_name != "D1": breaks.append(dict(bounds=[23.833, 7], pattern="hour"))
-    time_buffer = pd.Timedelta(days=10) if tf_name == "D1" else (pd.Timedelta(hours=12) if tf_name == "H1" else pd.Timedelta(hours=2))
-    x_range = [df.index[0] - pd.Timedelta(hours=4), df.index[-1] + time_buffer]
-    
-    fig.update_xaxes(
-        rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", 
-        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot",
-        row=1, col=1
-    )
-    fig.update_xaxes(
-        rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", 
-        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot",
-        row=2, col=1
-    )
-    
-    fig.update_yaxes(
-        side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", 
-        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot",
-        row=1, col=1
-    )
-    fig.update_yaxes(
-        side="right", showgrid=True, gridcolor="lightgray",
-        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dot",
-        row=2, col=1
-    )
-    
-    fig.update_layout(
-        title=title, height=450 if mobile else 700, 
-        margin=dict(l=10, r=10, t=50, b=50), 
-        plot_bgcolor="white", paper_bgcolor="white", 
-        showlegend=False, hovermode=hovermode, hoverlabel=hoverlabel
-    )
-    return fig
-
-PLOT_CONFIG = {"scrollZoom": True, "displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"], "doubleClick": "reset"}
-
-def capture_click(chart_key: str) -> tuple[str, float] | None:
-    ev = st.session_state.get(chart_key)
-    if not isinstance(ev, dict): return None
-    pts = (ev.get("selection") or {}).get("points") or []
-    if not pts: return None
-    p = pts[-1]; x, y = p.get("x"), p.get("y")
-    if x is None or y is None: return None
-    sig = f"{x}|{y}"
-    store = st.session_state.setdefault("_click_sig", {})
-    if store.get(chart_key) == sig: return None
-    store[chart_key] = sig
-    return str(x), float(y)
+            pullback_bg = "rgba(
