@@ -56,9 +56,9 @@ def draw_channel(fig, pts, x_right):
     shapes = [
         _sh(x_a, y_a, x_right, y_c_ext, "blue", width=2),
         _sh(x_a, y_a + off, x_right, y_c_ext + off, "blue", width=2),
-        dict(type="path", path=f"M {x_a.timestamp()*1000} {y_a} L {x_right.timestamp()*1000} {y_c_ext} L {x_right.timestamp()*1000} {y_c_ext+off} L {x_a.timestamp()*1000} {y_a+off} Z", fillcolor="rgba(25,118,210,0.08)", line=dict(width=0), layer="below")
     ]
     _add_shapes(fig, shapes)
+    fig.add_trace(go.Scatter(x=[x_a, x_right, x_right, x_a], y=[y_a, y_c_ext, y_c_ext + off, y_a + off], fill="toself", fillcolor="rgba(25,118,210,0.08)", line=dict(width=0), hoverinfo="skip", showlegend=False), row=1, col=1)
     fig.add_trace(go.Scatter(x=[x_a, _ts(t_b), x_c], y=[y_a, y_b, y_c], mode='markers+text', marker=dict(color='blue', size=10), text=["A", "B", "C"], textposition="top center", showlegend=False), row=1, col=1)
 
 def draw_fib(fig, pts, x_left, x_right, color, label):
@@ -90,9 +90,9 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     ])
 
 def draw_clusters(fig, clusters, x_left, x_right, color="orange"):
-    """Рисует зоны кластеров. Поддерживает оранжевый (по умолчанию) и голубой цвет."""
-    base_rgba = "rgba(33, 150, 243, " if color == "blue" else "rgba(251, 140, 0, "
-    _add_shapes(fig, [_rect(x_left, x_right, cl["low"], cl["high"], f"{base_rgba}{cl['opacity']:.2f})") for cl in clusters])
+    """Рисует зоны кластеров. color='orange' — стандартные, color='blue' — диапазон."""
+    base = "rgba(33,150,243," if color == "blue" else "rgba(251,140,0,"
+    _add_shapes(fig, [_rect(x_left, x_right, cl["low"], cl["high"], f"{base}{cl['opacity']:.2f})") for cl in clusters])
 
 def draw_breakouts(fig, breakouts, decimals):
     shapes, annots, drawn = [], [], set()
@@ -118,7 +118,6 @@ def draw_breakouts(fig, breakouts, decimals):
         if brk.get("has_pullback") and brk.get("e_time") is not None:
             v = brk["pullback_verdict"]
             pbg = "rgba(25,135,84,0.9)" if v == "Слабый" else ("rgba(220,53,69,0.9)" if v == "Сильный" else "rgba(253,126,20,0.9)")
-            
             ek = (brk["e_time"], brk["e_price"])
             if ek not in drawn:
                 annots.append(dict(xref="x", yref="y", x=brk["e_time"], y=brk["e_price"], showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor=pbg, bordercolor="black", font=dict(color="white", size=10),
