@@ -47,6 +47,37 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     with c[2 % len(c)]:
         deal["tp"] = st.number_input("Тейк-профит (0 = авто)", value=float(deal.get("tp") or 0.0), step=float(inst.min_step or 0.01), format=fmt, key=f"tp_{ticker}") or None
 
+    # === CSS СТИЛИ ДЛЯ ЦВЕТОВ ===
+    st.markdown(
+        f"""
+        <style>
+        /* SL - красный */
+        .st-key-sl_{ticker} input {{
+            color: #ef5350 !important;
+            -webkit-text-fill-color: #ef5350 !important;
+            font-weight: bold;
+        }}
+        /* TP - зеленый */
+        .st-key-tp_{ticker} input {{
+            color: #26a69a !important;
+            -webkit-text-fill-color: #26a69a !important;
+            font-weight: bold;
+        }}
+        /* ТВХ (таблица) - синий */
+        .st-key-entries_{ticker} div[data-testid="stDataFrame"] {{
+            border: 2px solid #1976D2 !important;
+            border-radius: 0.5rem !important;
+        }}
+        .st-key-entries_{ticker} input {{
+            color: #1976D2 !important;
+            -webkit-text-fill-color: #1976D2 !important;
+            font-weight: bold;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     if "entries" not in deal or not deal["entries"]:
         deal["entries"] = [{"price": inst.price, "qty": 0}]
     
@@ -120,6 +151,11 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
             ("Максимально допустимый риск (руб.)", money(plan["risk_budget"]), ""),
             ("ТВХ", num(plan["entry"]), ""),
             ("Стоп-лосс (SL)", num(plan["sl"]), "fail" if sl_wrong else ""),
+            
+            # Новые параметры по расчету
+            ("Минимальный TP (с учетом комиссий)", num(plan["min_tp"]), "ok" if not tp_wrong else ""),
+            ("Целевая прибыль (RR x Риск)", money(plan["target_profit_rub"]), "ok"),
+            
             ("Тейк-профит (TP)", num(plan["tp"]) if plan["tp"] else "—", "fail" if tp_wrong else ""),
             ("Доступно контрактов", f'{plan["qty_recommended"]} шт.', "fail" if qty_fail else ""),
             ("Риск в сделке", money(plan["risk_rub"]), "fail" if risk_fail else "ok"),
