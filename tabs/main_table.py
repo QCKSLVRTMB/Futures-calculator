@@ -106,10 +106,8 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         margin_go = min(margin_long, margin_short) if margin_long > 0 and margin_short > 0 else max(margin_long, margin_short)
         max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
 
-        # Форматируем числа с нужным количеством знаков (используем decimals)
         dec = inst.decimals
-        
-        # Строки для форматирования
+
         def fmt_val(val, d): return f"{val:,.{d}f}".replace(",", " ").replace(".", ",") if pd.notna(val) else "-"
         def fmt_money(val): return f"{val:,.2f}".replace(",", " ").replace(".", ",") + " ₽" if pd.notna(val) else "-"
         def fmt_int(val): return f"{val:,.0f}".replace(",", " ") if pd.notna(val) else "-"
@@ -130,7 +128,6 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
 
     table_df = pd.DataFrame(rows)
 
-    # Используем TextColumn, так как данные уже отформатированы как строки
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -150,3 +147,11 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         },
         height=400
     )
+
+    # Подпись с моментом расчёта ГО и текущим типом
+    if ims_df is not None and not ims_df.empty and "IM_TIME" in ims_df.columns:
+        ims_time = ims_df["IM_TIME"].max()
+        if pd.notna(ims_time):
+            st.caption(f"ГО рассчитано на: **{ims_time.strftime('%d.%m.%Y %H:%M')}** · Тип ГО: **{margin_type}**")
+    else:
+        st.caption(f"Тип ГО: **{margin_type}** · Данные IMS недоступны")
