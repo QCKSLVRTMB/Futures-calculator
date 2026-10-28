@@ -48,7 +48,7 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         st.info("Выберите хотя бы один тикер для отображения данных.")
         return
 
-    # === БЛОК НАСТРОЙКИ ТРЕНДОВ (остается без изменений) ===
+    # === 1. НАСТРОЙКА ТРЕНДОВ ===
     with st.expander("Настройка параметров рынка (Тренд, Волна, Тенденция)", expanded=False):
         rows = []
         for t in picked:
@@ -89,16 +89,13 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
             state.ticker(row["Тикер"])["market"].update({"trend": row["Тренд"], "wave": row["Волна"], "tendency": row["Тенденция"]})
         state.autosave()
 
-    # === ТАБЛИЦА РЫНОЧНЫХ ДАННЫХ (по указанным вами столбцам) ===
+    # === 2. ТАБЛИЦА РЫНОЧНЫХ ДАННЫХ ===
     st.markdown("#### Рыночные данные")
 
-    # Кнопка обновления (трогает только кэш ISS)
     if st.button("Обновить данные таблицы", key="refresh_market_table"):
         fetch_moex_forts.clear()
         fetch_moex_ims.clear()
         st.rerun()
-
-    view = iss_df[iss_df["SECID"].isin(picked)].copy()
 
     rows = []
     for t in picked:
