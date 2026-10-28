@@ -32,7 +32,13 @@ def _logo_path() -> str | None:
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _profiles() -> list[str]:
-    return storage.list_profiles()
+    try:
+        res = storage.list_profiles()
+        if isinstance(res, list) and res:
+            return res
+        return ["default"]
+    except Exception:
+        return ["default"]
 
 # === КОМПАКТНЫЙ ЗАГОЛОВОК ===
 col1, col2 = st.columns([5, 1])
@@ -54,7 +60,10 @@ def _sync(key, gkey):
 with st.sidebar:
     st.header("Параметры")
     profiles = _profiles()
-    current_prof = state.profile()
+    try:
+        current_prof = state.profile()
+    except Exception:
+        current_prof = "default"
     idx = profiles.index(current_prof) if current_prof in profiles else 0
     st.selectbox("Профиль данных", profiles + ["+ новый"], key="sb_profile_sel", index=idx)
     
