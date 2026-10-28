@@ -151,20 +151,83 @@ def _volume_colors(df, tf_name):
             if pd.notna(avg.iloc[i]) and avg.iloc[i] > 0 and volumes[i] > avg.iloc[i] * 3.0: colors[i] = anomaly
     return colors
 
-def build_figure(df, *, tf_name, title, decimals, mobile):
+def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.8, 0.2])
-    fig.add_trace(go.Ohlc(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], increasing_line_color=BAR_LINE_COLOR, decreasing_line_color=BAR_LINE_COLOR, increasing_line_width=1.5, decreasing_line_width=1.5, name="Рынок"), row=1, col=1)
+    
+    # Считаем изменение в % для плашки
+    df = df.copy()
+    df["Change"] = df["Close"].pct_change() * 100
+    
+    # Формируем Hovertemplate
+    if show_info:
+        hover_temp = (
+            "<b>%{x|%d.%m.%Y %H:%M}</b><br>"
+            "Откр: %{open:.DECIMALSf}<br>"
+            "Макс: %{high:.DECIMALSf}<br>"
+            "Мин: %{low:.DECIMALSf}<br>"
+            "Закр: %{close:.DECIMALSf}<br>"
+            "Изм: %{customdata[0]:+.2f}%<br>"
+            "Объем: %{customdata[1]:,.0f}"
+            "<extra></extra>"
+        ).replace("DECIMALS", str(decimals))
+        
+        # Выбор цвета плашки в зависимости от ТФ
+        if tf_name == "D1": h_bg = "rgba(25,118,210,0.95)"
+        elif tf_name == "H1": h_bg = "rgba(38,166,154,0.95)"
+        else: h_bg = "rgba(239,83,80,0.95)"
+        
+        hovermode = "x unified"
+        hoverlabel = dict(bgcolor=h_bg, font=dict(color="white", size=11), align="left")
+    else:
+        hover_temp = None
+        hovermode = "closest"
+        hoverlabel = None
+
+    fig.add_trace(go.Ohlc(
+        x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], 
+        increasing_line_color=BAR_LINE_COLOR, decreasing_line_color=BAR_LINE_COLOR, 
+        increasing_line_width=1.5, decreasing_line_width=1.5, name="Рынок",
+        customdata=df[["Change", "Volume"]],
+        hovertemplate=hover_temp
+    ), row=1, col=1)
+    
     if "Volume" in df.columns:
-        fig.add_trace(go.Bar(x=df.index, y=df["Volume"], marker_color=_volume_colors(df, tf_name), name="Объем"), row=2, col=1)
+        fig.add_trace(go.Bar(x=df.index, y=df["Volume"], marker_color=_volume_colors(df, tf_name), name="Объем", hoverinfo="skip"), row=2, col=1)
+        
     breaks = [dict(bounds=["sat", "mon"])]
     if tf_name != "D1": breaks.append(dict(bounds=[23.833, 7], pattern="hour"))
     time_buffer = pd.Timedelta(days=10) if tf_name == "D1" else (pd.Timedelta(hours=12) if tf_name == "H1" else pd.Timedelta(hours=2))
     x_range = [df.index[0] - pd.Timedelta(hours=4), df.index[-1] + time_buffer]
-    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", row=1, col=1)
-    fig.update_xaxes(rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", row=2, col=1)
-    fig.update_yaxes(side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", row=1, col=1)
-    fig.update_yaxes(side="right", showgrid=True, gridcolor="lightgray", row=2, col=1)
-    fig.update_layout(title=title, height=450 if mobile else 700, margin=dict(l=10, r=10, t=50, b=50), plot_bgcolor="white", paper_bgcolor="white", showlegend=False, hovermode="closest", uirevision="keep")
+    
+    # Настраиваем оси с перекрестием
+    fig.update_xaxes(
+        rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", 
+        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dash",
+        row=1, col=1
+    )
+    fig.update_xaxes(
+        rangeslider_visible=False, rangebreaks=breaks, range=x_range, showgrid=True, gridcolor="lightgray", 
+        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dash",
+        row=2, col=1
+    )
+    
+    fig.update_yaxes(
+        side="right", tickformat=f".{decimals}f", showgrid=True, gridcolor="lightgray", 
+        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dash",
+        row=1, col=1
+    )
+    fig.update_yaxes(
+        side="right", showgrid=True, gridcolor="lightgray",
+        showspikes=True, spikemode="across", spikesnap="cursor", spikecolor="black", spikethickness=1, spikedash="dash",
+        row=2, col=1
+    )
+    
+    fig.update_layout(
+        title=title, height=450 if mobile else 700, 
+        margin=dict(l=10, r=10, t=50, b=50), 
+        plot_bgcolor="white", paper_bgcolor="white", 
+        showlegend=False, hovermode=hovermode, hoverlabel=hoverlabel, uirevision="keep"
+    )
     return fig
 
 PLOT_CONFIG = {"scrollZoom": True, "displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"], "doubleClick": "reset"}
