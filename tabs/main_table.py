@@ -106,35 +106,47 @@ def render_main_tab(*, api_df, go_df, md_df, iss_df, ims_df=None, deposit, margi
         margin_go = min(margin_long, margin_short) if margin_long > 0 and margin_short > 0 else max(margin_long, margin_short)
         max_contracts = int(deposit // margin_go) if margin_go > 0 else 0
 
+        # Форматируем числа с нужным количеством знаков (используем decimals)
+        dec = inst.decimals
+        
+        # Строки для форматирования
+        def fmt_val(val, d): return f"{val:,.{d}f}".replace(",", " ").replace(".", ",") if pd.notna(val) else "-"
+        def fmt_money(val): return f"{val:,.2f}".replace(",", " ").replace(".", ",") + " ₽" if pd.notna(val) else "-"
+        def fmt_int(val): return f"{val:,.0f}".replace(",", " ") if pd.notna(val) else "-"
+
         rows.append({
             "Код контракта": inst.asset_code,
             "Наименование контракта": inst.name,
             "Тикер": t,
-            "Шаг цены": inst.min_step,
-            "Стоимость шага цены": inst.step_price,
-            "ГО покупатель": margin_long,
-            "ГО продавец": margin_short,
-            "Всего контрактов доступно": max_contracts,
-            "Рыночная цена": inst.price,
+            "Шаг цены": fmt_val(inst.min_step, dec),
+            "Стоимость шага цены": fmt_val(inst.step_price, dec),
+            "ГО покупатель": fmt_money(margin_long),
+            "ГО продавец": fmt_money(margin_short),
+            "Всего контрактов доступно": fmt_int(max_contracts),
+            "Рыночная цена": fmt_val(inst.price, dec),
             "Свободно для сделок": "—",
             "Дата экспирации": format_date(inst.expiry),
         })
 
     table_df = pd.DataFrame(rows)
 
+    # Используем TextColumn, так как данные уже отформатированы как строки
     st.dataframe(
         table_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Шаг цены": st.column_config.NumberColumn(format="%.4f"),
-            "Стоимость шага цены": st.column_config.NumberColumn(format="%.4f"),
-            "ГО покупатель": st.column_config.NumberColumn(format="%.2f ₽"),
-            "ГО продавец": st.column_config.NumberColumn(format="%.2f ₽"),
-            "Всего контрактов доступно": st.column_config.NumberColumn(format="%d"),
-            "Рыночная цена": st.column_config.NumberColumn(format="%.4f"),
-            "Свободно для сделок": st.column_config.TextColumn(),
-            "Дата экспирации": st.column_config.TextColumn(),
+            "Код контракта": st.column_config.TextColumn(width="small"),
+            "Наименование контракта": st.column_config.TextColumn(width="medium"),
+            "Тикер": st.column_config.TextColumn(width="small"),
+            "Шаг цены": st.column_config.TextColumn(width="small"),
+            "Стоимость шага цены": st.column_config.TextColumn(width="small"),
+            "ГО покупатель": st.column_config.TextColumn(width="small"),
+            "ГО продавец": st.column_config.TextColumn(width="small"),
+            "Всего контрактов доступно": st.column_config.TextColumn(width="small"),
+            "Рыночная цена": st.column_config.TextColumn(width="small"),
+            "Свободно для сделок": st.column_config.TextColumn(width="small"),
+            "Дата экспирации": st.column_config.TextColumn(width="small"),
         },
         height=400
     )
