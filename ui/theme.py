@@ -2,13 +2,17 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-# ИСПРАВЛЕНО: padding-top увеличен с 1rem до 4rem, чтобы верхняя панель браузера/Streamlit не перекрывала заголовок
 CSS = """
 <style>
   .block-container{padding-top:4rem; padding-bottom:3.5rem;}
   div[data-testid="stToolbar"]{visibility:hidden;height:0;}
   div[data-baseweb="tab-list"]{overflow-x:auto;scrollbar-width:none;}
   div[data-baseweb="tab-list"]::-webkit-scrollbar{display:none;}
+
+  /* Тонкий черный крестик вместо стандартного курсора */
+  .js-plotly-plot .plotly .draglayer {
+      cursor: crosshair !important;
+  }
 
   .fc-cards{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
   .fc-card{
@@ -50,7 +54,6 @@ def format_date(val) -> str:
         return str(val)
 
 def kv_data(items: list[tuple[str, str, str]], mobile: bool = False):
-    """Рисует таблицу параметров. Статусы: ok / bad / warn / fail (выделение текста) / '' """
     if mobile:
         html = "<div style='display:flex; flex-direction:column; gap:6px;'>"
         for label, value, status in items:
