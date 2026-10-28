@@ -36,7 +36,6 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
     inst = Instrument(ticker=ticker)
     row = pd.Series(dtype=object)
     
-    # Регистронезависимый поиск SECID (SIZ6 == SiZ6)
     if iss_df is not None and not iss_df.empty and "SECID" in iss_df:
         sel = iss_df.loc[iss_df["SECID"].astype(str).str.upper() == str(ticker).upper()]
         if not sel.empty: row = sel.iloc[0]
@@ -65,13 +64,11 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
         col_b, col_s = IMS_MARGIN_MAP[margin_type]
         key_col = next((c for c in ("SECID", "SEC_ID", "SECURITYID") if c in ims_df), None)
         if key_col:
-            # Регистронезависимый поиск в IMS
             sel = ims_df.loc[ims_df[key_col].astype(str).str.upper() == str(ticker).upper()]
             if not sel.empty:
                 inst.margin_long = to_float(sel.iloc[0].get(col_b)) or inst.margin_long
                 inst.margin_short = to_float(sel.iloc[0].get(col_s)) or inst.margin_short
 
-    # Fallback только если реально пусто — и только если данные есть
     if not row.empty:
         if inst.margin_long == 0 and go_df is not None and not go_df.empty:
             cl, cs = MARGIN_COL_MAP.get(margin_type, (4, 5))
@@ -322,25 +319,53 @@ def analyze_manual_zigzag(pts, df):
     return breakouts
 
 
-def find_volume_clusters(df: pd.DataFrame, threshold_mult=3.0, window=20) -> list[dict]:
-    if df.empty or 'Volume' not in df.columns: return []
+def get_volume_colors(df, tf_name, sensitivity=3.0):
+    """Возвращает массив цветов для гистограммы объемов (gray, black, green, red, blue)."""
+    if df.empty or "Volume" not in df.columns: return []
+    volumes = df["Volume"].values
+    times = df.index
+    colors = ["gray"] * len(df)
+    
+    for i in range(2, len(df)):
+        if volumes[i] > volumes[i-1] and volumes[i] > volumes[i-2]: 
+            colors[i] = "black"
+            
+    if tf_name == "H1":
+        for i in range(len(df)):
+            if times[i].hour == 10 and times[i].minute == 0:
+                prev = [volumes[j] for j in range(i-1, -1, -1) if times[j].hour == 10 and times[j].minute == 0][:2]
+                if len(prev) == 2 and volumes[i] > prev[0] and volumes[i] > prev[1]: 
+                    colors[i] = "black"
+                    
+    anomaly = "red" if tf_name in ("M10", "M1") else ("green" if tf_name == "H1" else ("blue" if tf_name == "D1" else None))
+    if anomaly:
+        avg = pd.Series(volumes).rolling(20, min_periods=5).mean().shift(1)
+        for i in range(len(volumes)):
+            if pd.notna(avg.iloc[i]) and avg.iloc[i] > 0 and volumes[i] > avg.iloc[i] * sensitivity: 
+                colors[i] = anomaly
+    return colors
+
+
+def calculate_volume_clusters(df, tf_name, sensitivity=3.0):
+    """Возвращает зоны кластеров для отрисовки с наложением (профиль объема)."""
+    if df.empty: return []
+    colors = get_volume_colors(df, tf_name, sensitivity)
     volumes = df['Volume'].values
-    rolling_avg = pd.Series(volumes).rolling(window=window, min_periods=5).mean().shift(1)
+    anomaly_color = "red" if tf_name in ("M10", "M1") else ("green" if tf_name == "H1" else ("blue" if tf_name == "D1" else None))
+    
     zones = []
     for i in range(len(df)):
-        avg = rolling_avg.iloc[i]
-        if pd.isna(avg) or avg <= 0 or volumes[i] <= avg * threshold_mult: continue
-        
-        row = df.iloc[i]
-        is_buy = float(row['Close']) > float(row['Open'])
-        y_low = float(row['Low']) if is_buy else float(row['Close'])
-        y_high = float(row['Close']) if is_buy else float(row['High'])
-        
-        if y_high > y_low:
-            # Определяем "силу" зоны: если объем больше 5-кратного среднего, это "сильная" зона (синяя)
-            is_strong = volumes[i] > avg * (threshold_mult * 1.67)
-            zones.append({
-                "time": df.index[i], "low": y_low, "high": y_high, 
-                "is_buy": is_buy, "volume": float(volumes[i]), "is_strong": is_strong
-            })
+        if colors[i] in ("black", anomaly_color):
+            row = df.iloc[i]
+            is_buy = float(row['Close']) > float(row['Open'])
+            y_low = float(row['Low']) if is_buy else float(row['Close'])
+            y_high = float(row['Close']) if is_buy else float(row['High'])
+            if y_high > y_low:
+                zones.append({
+                    "time": df.index[i],
+                    "low": y_low,
+                    "high": y_high,
+                    "is_buy": is_buy,
+                    "volume": float(volumes[i])
+                })
     return zones
