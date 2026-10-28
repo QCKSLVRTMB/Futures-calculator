@@ -36,7 +36,7 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
     inst = Instrument(ticker=ticker)
     row = pd.Series(dtype=object)
     
-    # ИСПРАВЛЕНО: Регистронезависимый поиск SECID (SIZ6 == SiZ6)
+    # Регистронезависимый поиск SECID (SIZ6 == SiZ6)
     if iss_df is not None and not iss_df.empty and "SECID" in iss_df:
         sel = iss_df.loc[iss_df["SECID"].astype(str).str.upper() == str(ticker).upper()]
         if not sel.empty: row = sel.iloc[0]
@@ -65,7 +65,7 @@ def get_instrument(ticker, *, iss_df=None, ims_df=None, go_df=None, api_df=None,
         col_b, col_s = IMS_MARGIN_MAP[margin_type]
         key_col = next((c for c in ("SECID", "SEC_ID", "SECURITYID") if c in ims_df), None)
         if key_col:
-            # ИСПРАВЛЕНО: Регистронезависимый поиск в IMS
+            # Регистронезависимый поиск в IMS
             sel = ims_df.loc[ims_df[key_col].astype(str).str.upper() == str(ticker).upper()]
             if not sel.empty:
                 inst.margin_long = to_float(sel.iloc[0].get(col_b)) or inst.margin_long
@@ -330,9 +330,17 @@ def find_volume_clusters(df: pd.DataFrame, threshold_mult=3.0, window=20) -> lis
     for i in range(len(df)):
         avg = rolling_avg.iloc[i]
         if pd.isna(avg) or avg <= 0 or volumes[i] <= avg * threshold_mult: continue
+        
         row = df.iloc[i]
         is_buy = float(row['Close']) > float(row['Open'])
         y_low = float(row['Low']) if is_buy else float(row['Close'])
         y_high = float(row['Close']) if is_buy else float(row['High'])
-        if y_high > y_low: zones.append({"time": df.index[i], "low": y_low, "high": y_high, "is_buy": is_buy})
+        
+        if y_high > y_low:
+            # Определяем "силу" зоны: если объем больше 5-кратного среднего, это "сильная" зона (синяя)
+            is_strong = volumes[i] > avg * (threshold_mult * 1.67)
+            zones.append({
+                "time": df.index[i], "low": y_low, "high": y_high, 
+                "is_buy": is_buy, "volume": float(volumes[i]), "is_strong": is_strong
+            })
     return zones
