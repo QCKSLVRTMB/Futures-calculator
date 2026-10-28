@@ -406,9 +406,8 @@ def calculate_volume_profile(df, tf_name="M10", bins=50, sensitivity=3.0):
         is_buy_dominant = buy_vols[b] >= sell_vols[b]
         color = "rgba(38, 166, 154, " if is_buy_dominant else "rgba(239, 83, 80, "
         
-        # Прозрачность от 1% до 15% в зависимости от объема
-        opacity = 0.15 * (total_vols[b] / max_vol)
-        opacity = max(0.01, min(0.15, opacity))
+        # Прозрачность: от 10% до 55% в зависимости от объема
+        opacity = 0.10 + 0.45 * (total_vols[b] / max_vol)
         
         zones.append({
             "low": low_price,
