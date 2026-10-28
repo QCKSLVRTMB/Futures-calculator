@@ -82,20 +82,13 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low + 2*diff/3, y1=high, fillcolor=color_top, line=dict(width=0), layer="below", row=1, col=1)
 
 def draw_clusters(fig, clusters, x_left, x_right):
-    # Сортируем так, чтобы "сильные" (высокообъемные) зоны рисовались поверх остальных
     sorted_clusters = sorted(clusters, key=lambda c: (c.get("is_strong", False), c.get("volume", 0)))
-    
     for cl in sorted_clusters:
-        # Если зона "сильная" - красим в синий, иначе в оранжевый. Прозрачность 15%.
         if cl.get("is_strong", False):
-            fill_color = "rgba(25, 118, 210, 0.15)"  # Синий
+            fill_color = "rgba(25, 118, 210, 0.15)"
         else:
-            fill_color = "rgba(255, 140, 0, 0.15)"   # Оранжевый
-            
-        fig.add_shape(
-            type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"], 
-            fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1
-        )
+            fill_color = "rgba(255, 140, 0, 0.15)"
+        fig.add_shape(type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"], fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1)
 
 def draw_breakouts(fig, breakouts, decimals):
     drawn_coords = set()
@@ -234,7 +227,8 @@ def build_figure(df, *, tf_name, title, decimals, mobile, show_info=True):
         title=title, height=450 if mobile else 700, 
         margin=dict(l=10, r=10, t=50, b=50), 
         plot_bgcolor="white", paper_bgcolor="white", 
-        showlegend=False, hovermode=hovermode, hoverlabel=hoverlabel, uirevision="keep"
+        showlegend=False, hovermode=hovermode, hoverlabel=hoverlabel
+        # UIREVISION УБРАН
     )
     return fig
 
