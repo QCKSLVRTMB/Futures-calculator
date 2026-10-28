@@ -118,20 +118,34 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
         if direction == "SHORT" and sl <= entry:
             warnings.append("SHORT: стоп должен быть **выше** входа.")
 
+    risk_pts = abs(entry - sl) if sl > 0 else 0.0
+
+    fee_entry = commission_per_side(inst, entry, tariff)
+    fee_sl = commission_per_side(inst, sl, tariff) if sl > 0 else 0.0
+
+    risk_per_ct = (risk_pts * pv) + fee_entry + fee_sl
+    target_profit_rub = risk_per_ct * rr_ratio
+
+    # === РАСЧЕТ МИНИМАЛЬНОГО TP (С УЧЕТОМ КОМИССИЙ) ===
+    # Считаем приблизительный TP, чтобы узнать размер комиссии за выход
+    approx_tp_pts = (target_profit_rub + fee_entry) / pv if pv > 0 else 0
+    approx_tp_price = inst.round_price(entry + approx_tp_pts * sign)
+    fee_tp_min = commission_per_side(inst, approx_tp_price, tariff) if approx_tp_price > 0 else 0.0
+    
+    # Точный расчет с учетом всех комиссий
+    exact_tp_pts = (target_profit_rub + fee_entry + fee_tp_min) / pv if pv > 0 else 0
+    min_tp = inst.round_price(entry + exact_tp_pts * sign)
+
+    # Если TP не задан, автоматически подставляем минимально необходимый
     if (tp is None or tp <= 0) and sl > 0 and entry > 0:
-        tp = inst.round_price(entry + (abs(entry - sl) * rr_ratio * sign))
+        tp = min_tp
     elif tp is not None and tp > 0 and entry > 0:
         if direction == "LONG" and tp <= entry: warnings.append("LONG: тейк должен быть **выше** входа.")
         if direction == "SHORT" and tp >= entry: warnings.append("SHORT: тейк должен быть **ниже** входа.")
 
-    risk_pts = abs(entry - sl) if sl > 0 else 0.0
     rew_pts = abs(tp - entry) if tp is not None and tp > 0 else 0.0
-
-    fee_entry = commission_per_side(inst, entry, tariff)
-    fee_sl = commission_per_side(inst, sl, tariff) if sl > 0 else 0.0
     fee_tp = commission_per_side(inst, tp, tariff) if tp is not None and tp > 0 else 0.0
 
-    risk_per_ct = (risk_pts * pv) + fee_entry + fee_sl
     reward_per_ct = (rew_pts * pv) - fee_entry - fee_tp
 
     risk_budget = deposit * (risk_pct / 100.0)
@@ -166,6 +180,8 @@ def plan_trade(inst: Instrument, *, direction: str, entries: list[dict], sl: flo
         "breakeven": inst.round_price(entry + sign * (fee_entry + fee_sl) / pv) if pv and entry > 0 else entry,
         "notional": entry * pv * qty,
         "leverage": (entry * pv) / margin if margin > 0 else 0.0,
+        "min_tp": min_tp,
+        "target_profit_rub": target_profit_rub,
         "warnings": warnings,
     }
 
