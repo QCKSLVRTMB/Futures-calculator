@@ -82,16 +82,12 @@ def draw_rr_zones(fig, t_c, p_c, t_d, p_d, strategy):
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low, y1=low + diff/3, fillcolor=color_bottom, line=dict(width=0), layer="below", row=1, col=1)
     fig.add_shape(type="rect", x0=t_c, x1=t_d, y0=low + 2*diff/3, y1=high, fillcolor=color_top, line=dict(width=0), layer="below", row=1, col=1)
 
-def draw_clusters(fig, clusters, x_right):
-    """Рисует зоны кластеров с прозрачностью 5% для наложения."""
+def draw_clusters(fig, clusters, x_left, x_right):
+    """Рисует зоны кластеров (профиль объема) на всю ширину графика."""
     for cl in clusters:
-        if cl["is_buy"]:
-            fill_color = "rgba(38, 166, 154, 0.05)" # Зеленый 5%
-        else:
-            fill_color = "rgba(239, 83, 80, 0.05)"  # Красный 5%
-            
+        fill_color = f"{cl['color_base']}{cl['opacity']})"
         fig.add_shape(
-            type="rect", x0=cl["time"], x1=x_right, y0=cl["low"], y1=cl["high"],
+            type="rect", x0=x_left, x1=x_right, y0=cl["low"], y1=cl["high"],
             fillcolor=fill_color, line=dict(width=0), layer="below", row=1, col=1
         )
 
