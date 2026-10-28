@@ -115,7 +115,11 @@ def draw_breakouts(fig, breakouts, decimals):
 
         if brk.get("has_pullback") and brk.get("e_time") is not None:
             v = brk["pullback_verdict"]
-            pbg = "rgba(25,135,84,0.9)" if v == "Сильный" else ("rgba(220,53,69,0.9)" if v == "Слабый" else "rgba(253,126,20,0.9)")
+            
+            # ИСПРАВЛЕНА ЦВЕТОВАЯ КАРТА: 
+            # Слабый откат (хороший) = Зеленый. Сильный откат (плохой) = Красный.
+            pbg = "rgba(25,135,84,0.9)" if v == "Слабый" else ("rgba(220,53,69,0.9)" if v == "Сильный" else "rgba(253,126,20,0.9)")
+            
             ek = (brk["e_time"], brk["e_price"])
             if ek not in drawn:
                 annots.append(dict(xref="x", yref="y", x=brk["e_time"], y=brk["e_price"], showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor=pbg, bordercolor="black", font=dict(color="white", size=10),
