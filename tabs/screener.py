@@ -41,16 +41,32 @@ def render_screener(*, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=
     
     # === БЛОК ФИЛЬТРОВ ===
     st.markdown("### Фильтры")
-    f1, f2, f3, f4 = st.columns(4)
     
-    with f1:
+    col1, col2, col3 = st.columns(3)
+    with col1:
         only_fitting = st.checkbox("Помещающиеся в депо", value=False, help="Скрыть инструменты, на которые не хватает депозита")
-    with f2:
+    with col2:
         min_oi = st.number_input("Мин. ОИ", min_value=0, value=0, step=100, help="Минимальный открытый интерес (шт. контрактов)")
-    with f3:
+    with col3:
         min_price = st.number_input("Мин. Цена", min_value=0.0, value=0.0, step=100.0, help="Минимальная стоимость контракта")
-    with f4:
+
+    col4, col5 = st.columns(2)
+    with col4:
         only_near = st.checkbox("Только ближайшие", value=True, help="Оставить только ближайшие к экспирации контракты для каждого актива")
+    with col5:
+        # Определяем максимальное ГО для ползунка
+        max_go_val = int(df["ГО Лонг"].max()) if not df.empty and df["ГО Лонг"].max() > 0 else 100000
+        # Шаг делаем адаптивным (примерно 100 делений)
+        step_val = max(100, max_go_val // 100)
+        
+        go_limit = st.slider(
+            "Макс. ГО (руб.)", 
+            min_value=0, 
+            max_value=max_go_val, 
+            value=max_go_val, 
+            step=step_val, 
+            help="Отсечь фьючерсы с гарантийным обеспечением выше выбранного лимита"
+        )
 
     # Применяем фильтры
     if only_fitting:
@@ -59,6 +75,10 @@ def render_screener(*, iss_df=None, ims_df=None, go_df=None, api_df=None, md_df=
         df = df[df["ОИ"] >= min_oi]
     if min_price > 0:
         df = df[df["Цена"] >= min_price]
+    
+    # Фильтр по максимальному ГО
+    if go_limit < max_go_val:
+        df = df[(df["ГО Лонг"] <= go_limit) & (df["ГО Шорт"] <= go_limit)]
     
     if only_near:
         # Преобразуем строки экспирации в datetime для корректной сортировки
