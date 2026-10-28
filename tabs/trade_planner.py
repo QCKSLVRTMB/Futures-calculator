@@ -380,7 +380,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                 "Откат E": b["e_price"] if b["has_pullback"] else "-",
                 "E vs 0.5": b["e_vs_b"] if b["has_pullback"] else "-",
                 "Откат %": f"{b['retracement_pct']:.1f}%" if b["has_pullback"] else "-",
-                "Оценка отката": {"Сильный": "Сильный", "Слабый": "Слабый", "Нормальный": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-"
+                # ИСПРАВЛЕНА ТАБЛИЦА:
+                "Оценка отката": {"Слабый": "Слабый (тренд сильный)", "Сильный": "Сильный (тренд слабый)", "Нормальный": "Нормальный"}.get(b.get("pullback_verdict"), "-") if b["has_pullback"] else "-"
             } for b in breakouts])
             st.dataframe(df_metrics, use_container_width=True, hide_index=True)
 
