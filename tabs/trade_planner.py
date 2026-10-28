@@ -126,13 +126,17 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
                 t1 = pd.to_datetime(cr_pts[0][0])
                 t2 = pd.to_datetime(cr_pts[1][0])
                 t_start, t_end = min(t1, t2), max(t1, t2)
-                df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
+                
+                # Запрашиваем больше данных (365 дней), чтобы точно охватить любой выбранный диапазон
+                df_m10 = fetch_moex_candles(ticker, interval=10, days_back=365)
                 if not df_m10.empty:
                     df_custom = df_m10.loc[t_start:t_end]
                     if not df_custom.empty:
                         custom_clusters_data = calculate_volume_profile(df_custom, tf_name="M10", threshold_pct=overlap_pct)
+                        if not custom_clusters_data:
+                            st.caption("В выбранном диапазоне нет аномальных объемов M10 для построения кластеров.")
                     else:
-                        st.caption("Нет данных M10 в выбранном диапазоне")
+                        st.caption("Нет данных M10 в выбранном диапазоне дат.")
 
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
@@ -311,13 +315,11 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
                         y_mid = float(view_period.loc[t_mid, 'Low'])
                     new_pts = [[str(t_start), y_start], [str(t_mid), y_mid], [str(t_end), y_end]]
             elif tool == "cluster_range":
-                # Правило: линия строится от High к Low (или наоборот)
+                # Строгое правило: Первая точка = LOW, Вторая точка = HIGH
                 if len(new_pts) == 0:
-                    is_high = abs(y - bar['High']) < abs(y - bar['Low'])
-                    new_pts.append([str(bar.name), float(bar['High']) if is_high else float(bar['Low'])])
+                    new_pts.append([str(bar.name), float(bar['Low'])])
                 elif len(new_pts) == 1:
-                    is_first_high = new_pts[0][1] == view.loc[pd.to_datetime(new_pts[0][0]), 'High']
-                    new_pts.append([str(bar.name), float(bar['Low']) if is_first_high else float(bar['High'])])
+                    new_pts.append([str(bar.name), float(bar['High'])])
             elif "zigzag" in tool:
                 if new_pts and pd.to_datetime(new_pts[-1][0]) == bar.name:
                     last_y = new_pts[-1][1]
@@ -380,6 +382,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
+    # Отрисовка кластеров
     if clusters_data:
         charts.draw_clusters(fig, clusters_data, x_left, x_right, color="orange")
     if custom_clusters_data:
@@ -390,6 +393,7 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
         if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
         if h1_fib_s: charts.draw_fib(fig, h1_fib_s, x_left, x_right, "green", "0.5 H1")
         
+        # Линия инструмента "Диапазон кластеров"
         if d1_cr_s and len(d1_cr_s) == 2:
             charts.draw_zigzag(fig, d1_cr_s, "#2196F3", "Диапазон кластеров")
 
