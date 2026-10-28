@@ -5,7 +5,7 @@ import time
 
 import rules
 from core import charts, state
-from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, calculate_volume_clusters
+from core.calc import get_instrument, plan_trade, analyze_manual_zigzag, calculate_volume_profile
 from core.config import DIRECTIONS, INTERVALS, TOOLS
 from core.market import fetch_moex_candles
 from ui.theme import kv_data, fragment, money, num, seg, format_date
@@ -64,10 +64,37 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
     plan = plan_trade(inst, direction=deal["direction"], entries=deal["entries"], sl=deal.get("sl"), tp=deal.get("tp"), deposit=deposit, risk_pct=risk_pct, rr_ratio=rr_ratio, tariff=commission, max_margin_util=state.g("max_margin_util", 50.0))
 
     st.markdown("#### Графики рынка")
+    
+    # === ГЛОБАЛЬНЫЕ НАСТРОЙКИ КЛАСТЕРОВ ===
+    show_clusters = st.toggle("Кластеры объемов (M10)", value=False, key=f"clu_{ticker}", help="Анализ объемов M10 от 2-й точки канала D1 до текущего бара. Отображается на всех таймфреймах.")
+    clusters_data = []
+    cluster_start_time = None
+    
+    if show_clusters:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            bins = st.slider("Детализация", min_value=10, max_value=100, value=50, step=5, key=f"clu_bins_{ticker}")
+        with c2:
+            d1_pts = tdata["charts"]["D1"]["channel"]
+            if len(d1_pts) == 3:
+                cluster_start_time = pd.to_datetime(d1_pts[2][0])
+                st.caption(f"Анализ M10 от {cluster_start_time.strftime('%d.%m.%Y %H:%M')}")
+            else:
+                st.caption("Для кластеров нужен канал на D1 (3 точки)")
+
+        if cluster_start_time:
+            df_m10 = fetch_moex_candles(ticker, interval=10, days_back=60)
+            if not df_m10.empty:
+                df_m10_filtered = df_m10.loc[cluster_start_time:]
+                clusters_data = calculate_volume_profile(df_m10_filtered, tf_name="M10", bins=bins)
+            else:
+                st.caption("Нет данных M10 для анализа")
+    # =====================================
+
     chart_tabs = st.tabs([cfg["label"] for cfg in INTERVALS.values()])
     for tab, (tf_name, cfg) in zip(chart_tabs, INTERVALS.items()):
         with tab:
-            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy)
+            _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data, cluster_start_time)
 
     if plan:
         st.markdown("#### Результаты расчета")
@@ -149,7 +176,7 @@ def snap_points(pts, df):
                 snapped.append([p_str, p_val])
     return snapped
 
-def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
+def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, clusters_data=None, cluster_start_time=None):
     if tf_name == "D1": available_tools = ["channel", "fib_d1"]
     elif tf_name == "H1": available_tools = ["zigzag", "fib_h1"]
     else: available_tools = ["zigzag"]
@@ -160,19 +187,13 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     with c2:
         if mobile:
             show_rr = st.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_clusters = st.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}")
             show_position = st.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
             show_info = st.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
         else:
-            cc1, cc2, cc3, cc4 = st.columns(4)
+            cc1, cc2, cc3 = st.columns(3)
             show_rr = cc1.toggle("Зоны RR", value=True, key=f"rr_{ticker}_{tf_name}")
-            show_clusters = cc2.toggle("Кластеры", value=False, key=f"clu_{ticker}_{tf_name}")
-            show_position = cc3.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
-            show_info = cc4.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
-
-    cluster_sens = 3.0
-    if show_clusters:
-        cluster_sens = st.slider("Чувствительность кластеров", min_value=1.0, max_value=10.0, value=3.0, step=0.5, key=f"clu_sens_{ticker}_{tf_name}", help="Минимальный объем бара в разах от среднего. Меньше — больше зон, больше — только самые сильные.")
+            show_position = cc2.toggle("Позиция", value=True, key=f"pos_{ticker}_{tf_name}")
+            show_info = cc3.toggle("Информация", value=True, key=f"info_{ticker}_{tf_name}")
 
     chart_data = tdata["charts"][tf_name]
     if tf_name == "D1": target_tool = "channel" if tool == "channel" else "fib"
@@ -322,10 +343,8 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy):
     x_left = view.index[0]
     x_right = view.index[-1] + time_buffer
 
-    if show_clusters:
-        clusters = calculate_volume_clusters(view, tf_name, cluster_sens)
-        charts.draw_clusters(fig, clusters, x_right)
-        st.caption(f"Кластеров: {len(clusters)}")
+    if clusters_data and cluster_start_time:
+        charts.draw_clusters(fig, clusters_data, cluster_start_time, x_right)
 
     if d1_pts_s: charts.draw_channel(fig, d1_pts_s, x_right)
     if d1_fib_s: charts.draw_fib(fig, d1_fib_s, x_left, x_right, "blue", "0.5 D1")
