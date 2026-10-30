@@ -98,6 +98,7 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
 
     clusters_data = []
     custom_clusters_data = []
+    cluster_start_time = None
     
     if show_clusters or show_custom_clusters:
         c1, c2 = st.columns([1, 2])
@@ -142,7 +143,6 @@ def _trade_block(ticker, inst, tdata, mobile, deposit, risk_pct, rr_ratio, commi
                 t1 = pd.to_datetime(cr_pts[0][0])
                 t2 = pd.to_datetime(cr_pts[1][0])
                 t_start, t_end = min(t1, t2), max(t1, t2)
-                # Запрашиваем больше данных, чтобы точно покрыть диапазон
                 df_m10 = fetch_moex_candles(ticker, interval=10, days_back=730)
                 if not df_m10.empty:
                     df_custom = df_m10.loc[t_start:t_end]
@@ -270,9 +270,12 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
 
     b1, b2 = st.columns(2)
     if b1.button("Отменить", key=f"undo_{ticker}_{tf_name}", use_container_width=True):
-        if chart_data[target_tool]: chart_data[target_tool].pop(); state.autosave(force=True); st.rerun(scope="fragment")
+        if chart_data[target_tool]:
+            chart_data[target_tool].pop()
+            state.autosave(force=True)
     if b2.button("Очистить", key=f"clr_{ticker}_{tf_name}", use_container_width=True):
-        chart_data[target_tool] = []; state.autosave(force=True); st.rerun(scope="fragment")
+        chart_data[target_tool] = []
+        state.autosave(force=True)
 
     df = fetch_moex_candles(ticker, cfg["interval"], cfg["days_back"])
     if df.empty:
@@ -311,12 +314,15 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
 
         if max_pts is None or len(new_pts) < max_pts:
             if tool == "channel":
-                if len(new_pts) == 0: new_pts.append([str(bar.name), y])
+                if len(new_pts) == 0:
+                    new_pts.append([str(bar.name), y])
                 elif len(new_pts) == 1:
                     first_time = pd.to_datetime(new_pts[0][0])
                     second_time = pd.to_datetime(bar.name)
-                    if first_time <= second_time: t_start, p_start, t_end, p_end = first_time, new_pts[0][1], second_time, y
-                    else: t_start, p_start, t_end, p_end = second_time, y, first_time, new_pts[0][1]
+                    if first_time <= second_time:
+                        t_start, p_start, t_end, p_end = first_time, new_pts[0][1], second_time, y
+                    else:
+                        t_start, p_start, t_end, p_end = second_time, y, first_time, new_pts[0][1]
                     is_up = p_end > p_start
                     view_period = view.loc[t_start:t_end]
                     if view_period.empty: return
@@ -364,7 +370,6 @@ def _render_tf_chart(ticker, tf_name, cfg, inst, tdata, mobile, plan, strategy, 
             if new_pts != pts:
                 chart_data[target_tool] = new_pts
                 state.autosave(force=True)
-                st.rerun(scope="fragment")
 
     if tf_name == "D1":
         d1_pts_s = snap_points(d1_pts, view)
